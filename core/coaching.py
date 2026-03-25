@@ -10,11 +10,11 @@ import numpy as np
 # Ideal ranges for each metric (forehand defaults)
 IDEAL_RANGES = {
     'forehand': {
-        'elbow_angle': (128, 148),       # arm extension at contact (tight sweet spot)
-        'hip_rotation': (60, 95),        # real rotation required
-        'shoulder_angle': (80, 105),     # proper unit turn
-        'knee_angle': (120, 148),        # athletic stance
-        'racket_lag': (75, 110),         # forearm ~horizontal at contact
+        'elbow_angle': (125, 165),       # arm extension at contact (pros: 130-170°)
+        'hip_rotation': (45, 95),        # shoulder-hip separation (2D-tolerant)
+        'shoulder_angle': (55, 100),     # peak unit turn during loading
+        'knee_angle': (105, 145),        # deepest knee bend during loading
+        'racket_lag': (70, 145),         # peak forearm angle during backswing
         'contact_height_ratio': (0.9, 1.3),
     },
     'backhand': {
@@ -87,23 +87,39 @@ class CoachingEngine:
         penalty = min(dist * 3.3, 100)
         return max(0.0, 100.0 - penalty)
 
-    def score_swing(self, angles, stroke_type='forehand', follow_through_complete=True):
-        """Score an entire swing. Returns dict with per-metric scores and overall SwingScore."""
-        if angles is None:
+    def score_swing(self, contact_angles, stroke_type='forehand',
+                     follow_through_complete=True, loading_angles=None):
+        """Score a swing using angles from the CORRECT phase for each metric.
+
+        - elbow_angle, hip_rotation: measured at CONTACT (arm extension, hip drive)
+        - shoulder_angle, knee_angle, racket_lag: measured at LOADING (coil, bend, lag)
+        - follow_through: measured post-contact
+
+        If loading_angles not provided, all metrics use contact_angles.
+        """
+        if contact_angles is None:
             return None
 
         ideals = IDEAL_RANGES.get(stroke_type, IDEAL_RANGES['forehand'])
         scores = {}
 
-        for metric in ['elbow_angle', 'hip_rotation', 'shoulder_angle', 'knee_angle', 'racket_lag']:
-            if metric in angles and metric in ideals:
-                scores[metric] = self.score_metric(angles[metric], ideals[metric])
+        # Metrics scored at CONTACT
+        for metric in ['elbow_angle', 'hip_rotation']:
+            if metric in contact_angles and metric in ideals:
+                scores[metric] = self.score_metric(contact_angles[metric], ideals[metric])
             else:
-                scores[metric] = 50.0  # default if missing
+                scores[metric] = 50.0
+
+        # Metrics scored at LOADING (use loading_angles if available)
+        load_src = loading_angles if loading_angles is not None else contact_angles
+        for metric in ['shoulder_angle', 'knee_angle', 'racket_lag']:
+            if metric in load_src and metric in ideals:
+                scores[metric] = self.score_metric(load_src[metric], ideals[metric])
+            else:
+                scores[metric] = 50.0
 
         scores['follow_through'] = 100.0 if follow_through_complete else 30.0
 
-        # Weighted overall score
         overall = sum(scores[m] * WEIGHTS[m] for m in WEIGHTS if m in scores)
         scores['overall'] = round(overall, 1)
 
@@ -131,11 +147,20 @@ class CoachingEngine:
                 }
         return comparison
 
-    def generate_coaching_report(self, scores, angles, stroke_type='forehand',
-                                  pro_comparison=None):
-        """Generate a human-readable coaching report."""
-        if scores is None or angles is None:
+    def generate_coaching_report(self, scores, contact_angles, stroke_type='forehand',
+                                  pro_comparison=None, loading_angles=None):
+        """Generate a human-readable coaching report.
+        Uses the correct angle source for each metric's phase.
+        """
+        if scores is None or contact_angles is None:
             return "Could not analyze swing — no pose detected at contact point."
+
+        # Build a merged angle dict that uses the right phase for each metric
+        angles = dict(contact_angles)
+        if loading_angles:
+            for m in ['shoulder_angle', 'knee_angle', 'racket_lag']:
+                if m in loading_angles:
+                    angles[m] = loading_angles[m]
 
         lines = []
         lines.append(f"SwingScore: {scores['overall']}/100")

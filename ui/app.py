@@ -76,7 +76,29 @@ def analyze_video(video_path, playing_hand='right'):
 
     # Get angles at contact
     side = playing_hand
-    angles = pose_engine.get_joint_angles(keypoints_seq[contact_idx], side=side)
+    contact_angles = pose_engine.get_joint_angles(keypoints_seq[contact_idx], side=side)
+
+    # Get BEST loading angles from loading phase (not preparation — too early).
+    # Falls back to last 30% of preparation if no loading frames detected.
+    load_phases = [i for i, p in enumerate(phases) if p == 'loading']
+    if not load_phases:
+        prep_frames = [i for i, p in enumerate(phases) if p == 'preparation']
+        if prep_frames:
+            load_phases = prep_frames[int(len(prep_frames) * 0.7):]  # last 30% of prep
+    loading_angles = None
+    if load_phases:
+        best = {'shoulder_angle': 0, 'knee_angle': 180, 'racket_lag': 0}
+        for fi in load_phases:
+            if keypoints_seq[fi] is not None:
+                a = pose_engine.get_joint_angles(keypoints_seq[fi], side=side)
+                if a:
+                    if a['shoulder_angle'] > best['shoulder_angle']:
+                        best['shoulder_angle'] = a['shoulder_angle']
+                    if a['knee_angle'] < best['knee_angle']:  # lower = more bent
+                        best['knee_angle'] = a['knee_angle']
+                    if a['racket_lag'] > best['racket_lag']:
+                        best['racket_lag'] = a['racket_lag']
+        loading_angles = best
 
     # Classify stroke
     stroke_type = swing_classifier.classify_stroke(keypoints_seq[contact_idx])
@@ -84,11 +106,14 @@ def analyze_video(video_path, playing_hand='right'):
     # Check follow-through
     follow_through = swing_classifier.detect_follow_through_completion(keypoints_seq, phases)
 
-    # Score the swing
-    scores = coaching_engine.score_swing(angles, stroke_type, follow_through)
+    # Score the swing (phase-aware: contact metrics at contact, loading metrics at loading)
+    scores = coaching_engine.score_swing(contact_angles, stroke_type, follow_through, loading_angles)
+    angles = contact_angles  # for display
 
-    # Generate coaching report
-    report = coaching_engine.generate_coaching_report(scores, angles, stroke_type)
+    # Generate coaching report (pass both angle sets for correct phase display)
+    report = coaching_engine.generate_coaching_report(
+        scores, contact_angles, stroke_type, loading_angles=loading_angles
+    )
 
     # Check for injury warnings
     warnings = coaching_engine.get_injury_warnings(angles, stroke_type)
