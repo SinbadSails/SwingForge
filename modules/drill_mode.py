@@ -26,46 +26,157 @@ from core.swing_detector import SwingDetector
 from core.voice_coach import VoiceCoach
 from core.coaching import CoachingEngine
 
+# ── DRILL CATEGORIES ──
+DRILL_CATEGORIES = {
+    'GROUNDSTROKE': [1, 2, 3, 4, 5],
+    'SERVE': [6, 7, 8],
+    'FUNDAMENTALS': [9, 10],
+}
+
 # Drill definitions — each focuses on ONE metric
 DRILLS = {
+    # ── Groundstroke drills ──
     1: {
         'name': 'Knee Bend',
+        'category': 'GROUNDSTROKE',
         'metric': 'knee_angle',
-        'phase': 'loading',  # measure during loading
-        'target': (115, 140),  # ideal range in degrees
+        'phase': 'loading',
+        'target': (115, 140),
         'unit': '°',
-        'good_direction': 'lower',  # lower angle = more bend = better
+        'good_direction': 'lower',
         'instruction': 'Focus on bending your knees during the backswing.',
         'tip_too_high': 'Bend deeper! Drop into your legs before the swing.',
         'tip_too_low': 'Careful — too deep. Stay athletic, not squatting.',
-        'tip_good': 'Great knee bend! That loading will give you power.',
-        'color': (0, 255, 0),  # green
+        'tip_good': 'Great knee bend! Power from the ground up.',
+        'color': (0, 255, 0),
     },
     2: {
         'name': 'Shoulder Turn',
+        'category': 'GROUNDSTROKE',
         'metric': 'shoulder_angle',
         'phase': 'loading',
         'target': (65, 100),
         'unit': '°',
         'good_direction': 'higher',
-        'instruction': 'Focus on rotating your shoulders fully during preparation.',
-        'tip_too_high': 'You\'re over-rotating. Keep it controlled.',
-        'tip_too_low': 'Turn more! Get your non-dominant shoulder pointing at the ball.',
-        'tip_good': 'Excellent shoulder turn! Full coil.',
-        'color': (255, 200, 0),  # yellow
+        'instruction': 'Rotate your shoulders fully during preparation.',
+        'tip_too_high': 'Over-rotating — keep it controlled.',
+        'tip_too_low': 'Turn more! Non-dominant shoulder toward the ball.',
+        'tip_good': 'Full coil! That sets up everything.',
+        'color': (255, 200, 0),
     },
     3: {
         'name': 'Racket Lag',
+        'category': 'GROUNDSTROKE',
         'metric': 'racket_lag',
         'phase': 'loading',
         'target': (75, 130),
         'unit': '°',
         'good_direction': 'higher',
-        'instruction': 'Focus on letting the racket lag behind your elbow.',
-        'tip_too_high': 'Racket is too far behind — you\'ll lose control.',
-        'tip_too_low': 'Let the racket drop more! Think waiter\'s tray position.',
-        'tip_good': 'Perfect lag! That\'s where the power comes from.',
-        'color': (0, 200, 255),  # cyan
+        'instruction': 'Let the racket lag behind your elbow on the backswing.',
+        'tip_too_high': 'Too far behind — losing control.',
+        'tip_too_low': 'Let it drop more! Think waiter\'s tray.',
+        'tip_good': 'Perfect lag! That\'s where the whip comes from.',
+        'color': (0, 200, 255),
+    },
+    4: {
+        'name': 'Elbow Extension',
+        'category': 'GROUNDSTROKE',
+        'metric': 'elbow_angle',
+        'phase': 'contact',
+        'target': (125, 160),
+        'unit': '°',
+        'good_direction': 'higher',
+        'instruction': 'Extend your arm through the ball at contact.',
+        'tip_too_high': 'Arm is locked out — keep slight bend for control.',
+        'tip_too_low': 'Extend more! Reach through the ball at contact.',
+        'tip_good': 'Full extension! That maximizes racket head speed.',
+        'color': (255, 100, 255),
+    },
+    5: {
+        'name': 'Follow-Through',
+        'category': 'GROUNDSTROKE',
+        'metric': 'racket_lag',
+        'phase': 'follow_through',
+        'target': (30, 80),
+        'unit': '°',
+        'good_direction': 'lower',
+        'instruction': 'Finish with your racket over your opposite shoulder.',
+        'tip_too_high': 'Arm stopped early — keep following through!',
+        'tip_too_low': 'Nice wrap! Full follow-through.',
+        'tip_good': 'Complete follow-through! The swing isn\'t over at contact.',
+        'color': (100, 255, 100),
+    },
+    # ── Serve drills ──
+    6: {
+        'name': 'Trophy Position',
+        'category': 'SERVE',
+        'metric': 'racket_lag',
+        'phase': 'loading',
+        'target': (120, 170),
+        'unit': '°',
+        'good_direction': 'higher',
+        'instruction': 'Get your racket arm UP during the serve wind-up. Think trophy pose.',
+        'tip_too_high': 'Arm is too far back — elbow should point up.',
+        'tip_too_low': 'Reach higher! Racket arm should be above your head.',
+        'tip_good': 'Great trophy position! Ready to explode up.',
+        'color': (255, 150, 0),
+    },
+    7: {
+        'name': 'Serve Knee Load',
+        'category': 'SERVE',
+        'metric': 'knee_angle',
+        'phase': 'loading',
+        'target': (100, 135),
+        'unit': '°',
+        'good_direction': 'lower',
+        'instruction': 'Bend your knees to load before jumping into the serve.',
+        'tip_too_high': 'Bend more! You need leg drive for power.',
+        'tip_too_low': 'Good depth but don\'t sit too low — you need to explode up.',
+        'tip_good': 'Loaded! That leg drive will add miles per hour.',
+        'color': (255, 100, 0),
+    },
+    8: {
+        'name': 'Serve Extension',
+        'category': 'SERVE',
+        'metric': 'elbow_angle',
+        'phase': 'contact',
+        'target': (155, 178),
+        'unit': '°',
+        'good_direction': 'higher',
+        'instruction': 'Reach UP at the highest point. Full arm extension on serve.',
+        'tip_too_high': 'Perfect reach! Almost fully extended.',
+        'tip_too_low': 'Reach higher! Contact should be at full stretch.',
+        'tip_good': 'Maximum reach! That\'s the power zone for serves.',
+        'color': (255, 50, 0),
+    },
+    # ── Fundamental drills ──
+    9: {
+        'name': 'Ready Position',
+        'category': 'FUNDAMENTALS',
+        'metric': 'knee_angle',
+        'phase': 'contact',  # use live measurement, not swing-based
+        'target': (130, 155),
+        'unit': '°',
+        'good_direction': 'lower',
+        'instruction': 'Hold your ready position: knees bent, weight on balls of feet.',
+        'tip_too_high': 'Bend your knees more! Athletic stance.',
+        'tip_too_low': 'Too low — you won\'t be able to move quickly.',
+        'tip_good': 'Perfect athletic stance! You\'re ready to react.',
+        'color': (200, 200, 200),
+    },
+    10: {
+        'name': 'Split Step',
+        'category': 'FUNDAMENTALS',
+        'metric': 'knee_angle',
+        'phase': 'loading',
+        'target': (120, 145),
+        'unit': '°',
+        'good_direction': 'lower',
+        'instruction': 'Practice your split step — small hop, then land in ready position.',
+        'tip_too_high': 'Land lower! Split step needs more knee bend on landing.',
+        'tip_too_low': 'Good depth — now recover quickly to neutral.',
+        'tip_good': 'Great split step! Quick feet start with good landing.',
+        'color': (150, 150, 255),
     },
 }
 
@@ -162,8 +273,8 @@ def draw_drill_hud(frame, drill, current_value, swing_num, swing_history,
     # ── FPS + controls ──
     cv2.putText(frame, f"{fps:.0f} FPS", (w - 80, h - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
-    cv2.putText(frame, "[1] Knee  [2] Shoulder  [3] Lag  [R] Restart  [Q] Quit",
-                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
+    cv2.putText(frame, "[1-5] Groundstroke  [6-8] Serve  [9-0] Fundamentals  [R]estart  [Q]uit",
+                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.33, (80, 80, 80), 1)
 
     return frame
 
@@ -290,7 +401,13 @@ def run_drill_mode(playing_hand='right'):
 
     print(f"\n  SwingForge Drill Mode")
     print(f"  ─────────────────────")
-    print(f"  [1] Knee Bend  [2] Shoulder Turn  [3] Racket Lag")
+    print(f"  GROUNDSTROKE:")
+    print(f"    [1] Knee Bend  [2] Shoulder Turn  [3] Racket Lag")
+    print(f"    [4] Elbow Extension  [5] Follow-Through")
+    print(f"  SERVE:")
+    print(f"    [6] Trophy Position  [7] Serve Knee Load  [8] Serve Extension")
+    print(f"  FUNDAMENTALS:")
+    print(f"    [9] Ready Position  [0] Split Step")
     print(f"  [R] Restart  [V] Voice  [Q] Quit\n")
 
     voice_coach.say(f"Drill mode. Working on {drill['name']}. {drill['instruction']}")
@@ -330,14 +447,16 @@ def run_drill_mode(playing_hand='right'):
                 voice_coach.say(f"Restarting {drill['name']} drill.")
             elif key == ord('q') or key == 27:
                 break
-            elif key in [ord('1'), ord('2'), ord('3')]:
-                current_drill_id = key - ord('0')
-                drill = DRILLS[current_drill_id]
-                swing_history = []
-                swing_detector = SwingDetector(fps=30)
-                show_summary = False
-                feedback_text = ""
-                voice_coach.say(f"Switching to {drill['name']} drill. {drill['instruction']}")
+            elif key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
+                new_id = (key - ord('0')) if key != ord('0') else 10
+                if new_id in DRILLS:
+                    current_drill_id = new_id
+                    drill = DRILLS[current_drill_id]
+                    swing_history = []
+                    swing_detector = SwingDetector(fps=30)
+                    show_summary = False
+                    feedback_text = ""
+                    voice_coach.say(f"Switching to {drill['name']}. {drill['instruction']}")
             continue
 
         try:
@@ -453,15 +572,17 @@ def run_drill_mode(playing_hand='right'):
         elif key == ord('v'):
             voice_coach.enabled = not voice_coach.enabled
             print(f"  Voice: {'ON' if voice_coach.enabled else 'OFF'}")
-        elif key in [ord('1'), ord('2'), ord('3')]:
-            current_drill_id = key - ord('0')
-            drill = DRILLS[current_drill_id]
-            swing_history = []
-            swing_detector = SwingDetector(fps=30)
-            show_summary = False
-            feedback_text = ""
-            voice_coach.say(f"Switching to {drill['name']}. {drill['instruction']}")
-            print(f"  Drill: {drill['name']}")
+        elif key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
+            new_id = (key - ord('0')) if key != ord('0') else 10
+            if new_id in DRILLS:
+                current_drill_id = new_id
+                drill = DRILLS[current_drill_id]
+                swing_history = []
+                swing_detector = SwingDetector(fps=30)
+                show_summary = False
+                feedback_text = ""
+                voice_coach.say(f"Switching to {drill['name']}. {drill['instruction']}")
+                print(f"  Drill: {drill['name']}")
 
     # Final summary
     voice_coach.stop()
