@@ -52,33 +52,44 @@ def load_pro_data(pro_file):
         return json.load(f)
 
 
-def draw_ghost_skeleton(frame, ghost_kp, hip_center, scale, alpha=0.5):
-    """Draw the pro's ghost skeleton (blue) scaled and positioned on frame."""
+def draw_ghost_mini(frame, ghost_kp, box_x, box_y, box_size=200):
+    """Draw the pro's ghost skeleton as a MINI reference in a corner box.
+    NOT overlaid on the user — separate reference panel they can glance at.
+    """
     if ghost_kp is None:
         return frame
 
-    overlay = frame.copy()
-    color = (255, 191, 0)  # electric blue in BGR
+    color = (255, 191, 0)  # electric blue
+    bg_color = (20, 20, 20)
 
-    # Convert normalized keypoints to screen coordinates
+    # Draw background box
+    cv2.rectangle(frame, (box_x, box_y), (box_x + box_size, box_y + box_size), bg_color, -1)
+    cv2.rectangle(frame, (box_x, box_y), (box_x + box_size, box_y + box_size), color, 1)
+
+    # Convert normalized keypoints to mini-box coordinates
+    # Center the skeleton in the box
+    center_x = box_x + box_size // 2
+    center_y = box_y + box_size // 2
+    scale = box_size * 0.35  # fit skeleton in the box
+
     screen_kp = {}
     for name, data in ghost_kp.items():
         if data is None:
             continue
-        x = data['x'] * scale + hip_center[0]
-        y = data['y'] * scale + hip_center[1]
-        screen_kp[name] = (int(x), int(y))
+        x = int(data['x'] * scale + center_x)
+        y = int(data['y'] * scale + center_y)
+        # Clamp to box
+        x = max(box_x + 5, min(box_x + box_size - 5, x))
+        y = max(box_y + 5, min(box_y + box_size - 5, y))
+        screen_kp[name] = (x, y)
 
-    # Draw connections
     for start, end in SKELETON_CONNECTIONS:
         if start in screen_kp and end in screen_kp:
-            cv2.line(overlay, screen_kp[start], screen_kp[end], color, 2)
+            cv2.line(frame, screen_kp[start], screen_kp[end], color, 2)
 
-    # Draw joints
     for name, pt in screen_kp.items():
-        cv2.circle(overlay, pt, 4, color, -1)
+        cv2.circle(frame, pt, 3, (0, 255, 255), -1)
 
-    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
     return frame
 
 
@@ -333,7 +344,8 @@ def run_shadow_mode(playing_hand='right'):
         overall = 0
         angles = None
         phase = 'ready'
-        tip = 'Step into frame!'
+        tip = 'Swing to get scored!'
+        is_swinging = False  # only score when actually moving
 
         try:
             # Track wrist velocity for swing detection
@@ -360,17 +372,10 @@ def run_shadow_mode(playing_hand='right'):
                 if ghost_frame_idx < len(pro_raw_sequence):
                     current_ghost_raw_kp = pro_raw_sequence[ghost_frame_idx]
 
-            # Draw ghost skeleton
-            if ghost_on and current_ghost_kp and user_kp:
-                user_hip_x = (user_kp['left_hip'][0] + user_kp['right_hip'][0]) / 2
-                user_hip_y = (user_kp['left_hip'][1] + user_kp['right_hip'][1]) / 2
-                user_shoulder_y = (user_kp['left_shoulder'][1] + user_kp['right_shoulder'][1]) / 2
-                user_torso = abs(user_hip_y - user_shoulder_y)
-                if user_torso > 10:
-                    frame = draw_ghost_skeleton(
-                        frame, current_ghost_kp,
-                        hip_center=(int(user_hip_x), int(user_hip_y)),
-                        scale=user_torso, alpha=0.5)
+            # Draw ghost skeleton as mini reference in bottom-left corner
+            if ghost_on and current_ghost_kp:
+                frame = draw_ghost_mini(frame, current_ghost_kp,
+                                         box_x=10, box_y=h - 210, box_size=200)
 
             # Draw user skeleton (green)
             if user_kp:
@@ -387,19 +392,34 @@ def run_shadow_mode(playing_hand='right'):
                     if vis > 0.5:
                         cv2.circle(frame, (int(kp[0]), int(kp[1])), 5, (0, 255, 255), -1)
 
-            # Calculate sync score
-            if current_ghost_raw_kp:
-                sync_scores = calculate_sync_score(user_kp, current_ghost_raw_kp, pose_engine, playing_hand)
-            elif user_kp:
-                user_angles = pose_engine.get_joint_angles(user_kp, side=playing_hand)
-                if user_angles:
-                    for joint, akey in {'right_wrist': 'racket_lag', 'right_elbow': 'elbow_angle',
-                                         'right_shoulder': 'shoulder_angle', 'right_hip': 'hip_rotation'}.items():
-                        if akey in user_angles and akey in pro_angles:
-                            diff = abs(user_angles[akey] - pro_angles[akey])
-                            sync_scores[joint] = max(0, 100 - (diff / 60) * 100)
+            # Detect if user is actually swinging (wrist moving fast enough)
+            if len(wrist_history) >= 3:
+                recent_deltas = [abs(wrist_history[i] - wrist_history[i-1])
+                                 for i in range(-1, -min(4, len(wrist_history)), -1)]
+                is_swinging = np.mean(recent_deltas) > 8  # pixels of wrist movement per frame
 
-            overall = np.mean(list(sync_scores.values())) if sync_scores else 0
+            # Only calculate sync score when user is actively swinging
+            if is_swinging:
+                if current_ghost_raw_kp:
+                    sync_scores = calculate_sync_score(user_kp, current_ghost_raw_kp, pose_engine, playing_hand)
+                elif user_kp:
+                    user_angles = pose_engine.get_joint_angles(user_kp, side=playing_hand)
+                    if user_angles:
+                        for joint, akey in {'right_wrist': 'racket_lag', 'right_elbow': 'elbow_angle',
+                                             'right_shoulder': 'shoulder_angle', 'right_hip': 'hip_rotation'}.items():
+                            if akey in user_angles and akey in pro_angles:
+                                diff = abs(user_angles[akey] - pro_angles[akey])
+                                sync_scores[joint] = max(0, 100 - (diff / 60) * 100)
+                overall = np.mean(list(sync_scores.values())) if sync_scores else 0
+                tip = min(sync_scores, key=sync_scores.get) if sync_scores else ''
+                tip_map = {'right_hip': 'Drive hips forward!', 'right_shoulder': 'Turn shoulders!',
+                           'right_elbow': 'Extend elbow!', 'right_wrist': 'Check wrist lag!'}
+                tip = tip_map.get(tip, 'Keep swinging!')
+            else:
+                # Idle — show 0 and prompt to swing
+                sync_scores = {j: 0.0 for j in SYNC_JOINTS}
+                overall = 0
+                tip = 'Swing to get scored!'
             angles = pose_engine.get_joint_angles(user_kp, side=playing_hand) if user_kp else None
 
             # Phase detection
@@ -426,11 +446,7 @@ def run_shadow_mode(playing_hand='right'):
             if voice_on and user_kp and total_loop_frames % 120 == 0:
                 voice_coach.coach_on_angles(sync_scores, overall)
 
-            # Coaching tip
-            worst = min(sync_scores, key=sync_scores.get) if sync_scores else ''
-            tips = {'right_hip': 'Drive hips forward!', 'right_shoulder': 'Turn shoulders!',
-                    'right_elbow': 'Extend elbow!', 'right_wrist': 'Check wrist lag!'}
-            tip = tips.get(worst, 'Keep swinging!')
+            # (tip already set above based on swing state)
 
             # Draw HUD
             if show_hud:
