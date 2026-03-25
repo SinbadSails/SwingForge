@@ -175,7 +175,7 @@ def normalize_keypoints(keypoints_seq):
 
 def main():
     parser = argparse.ArgumentParser(description='Extract pro player keypoints from YouTube')
-    parser.add_argument('--url', type=str, required=True, help='YouTube URL')
+    parser.add_argument('--url', type=str, default='', help='YouTube URL')
     parser.add_argument('--name', type=str, required=True, help='Output name (e.g. djokovic_forehand)')
     parser.add_argument('--start', type=float, default=0, help='Start time (seconds)')
     parser.add_argument('--end', type=float, default=5, help='End time (seconds)')
