@@ -157,31 +157,74 @@ def analyze_video(video_path, playing_hand='right'):
 # ─── MODULE 2: Live Webcam Analysis ──────────────────────────────────
 
 def process_webcam_frame(frame, playing_hand='right'):
-    """Process a single webcam frame for real-time analysis."""
+    """Process a single webcam frame for real-time analysis.
+    Gradio 6 sends frames as RGB numpy arrays (or PIL Image).
+    """
     if frame is None:
+        return None
+
+    try:
+        # Handle different input types from Gradio
+        if not isinstance(frame, np.ndarray):
+            frame = np.array(frame)
+
+        # Make a copy to draw on (frame is RGB from Gradio)
+        output = frame.copy()
+        h, w = output.shape[:2]
+
+        # MediaPipe needs BGR input (our extract_keypoints converts BGR->RGB internally)
+        frame_bgr = cv2.cvtColor(output, cv2.COLOR_RGB2BGR)
+        kp = pose_engine.extract_keypoints(frame_bgr)
+
+        if kp is None:
+            # Draw "no pose" message directly on RGB frame
+            cv2.putText(output, "No pose detected", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 50, 50), 2)
+            cv2.putText(output, "Step back so camera sees head to knees", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 150, 150), 1)
+            return output
+
+        # Draw skeleton in RGB color space (swap B and R for RGB)
+        for start, end in [
+            ('left_shoulder', 'right_shoulder'),
+            ('left_shoulder', 'left_elbow'), ('left_elbow', 'left_wrist'),
+            ('right_shoulder', 'right_elbow'), ('right_elbow', 'right_wrist'),
+            ('left_shoulder', 'left_hip'), ('right_shoulder', 'right_hip'),
+            ('left_hip', 'right_hip'),
+            ('left_hip', 'left_knee'), ('left_knee', 'left_ankle'),
+            ('right_hip', 'right_knee'), ('right_knee', 'right_ankle'),
+        ]:
+            if start in kp and end in kp:
+                p1 = (int(kp[start][0]), int(kp[start][1]))
+                p2 = (int(kp[end][0]), int(kp[end][1]))
+                cv2.line(output, p1, p2, (0, 255, 127), 3)
+
+        # Draw joint dots
+        for name, point in kp.items():
+            cv2.circle(output, (int(point[0]), int(point[1])), 5, (0, 255, 255), -1)
+
+        # Get angles
+        angles = pose_engine.get_joint_angles(kp, side=playing_hand)
+        if angles:
+            # Dark box for text readability
+            cv2.rectangle(output, (5, 5), (300, 170), (20, 20, 20), -1)
+            cv2.rectangle(output, (5, 5), (300, 170), (200, 255, 0), 2)
+
+            y_off = 30
+            for key, val in angles.items():
+                if key != 'contact_height_ratio':
+                    nice = key.replace('_', ' ').title()
+                    cv2.putText(output, f"{nice}: {val:.1f}", (12, y_off),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 255, 0), 2)
+                    y_off += 28
+
+        return output
+
+    except Exception as e:
+        print(f"Webcam error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return frame
-
-    kp = pose_engine.extract_keypoints(frame)
-    if kp is None:
-        cv2.putText(frame, "No pose detected — step into frame",
-                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        return frame
-
-    # Draw skeleton
-    pose_engine.draw_skeleton(frame, kp, color=(0, 255, 127), thickness=2)
-
-    # Get current angles
-    angles = pose_engine.get_joint_angles(kp, side=playing_hand)
-    if angles:
-        y_off = 30
-        for key, val in angles.items():
-            if key != 'contact_height_ratio':
-                nice = key.replace('_', ' ').title()
-                cv2.putText(frame, f"{nice}: {val:.1f}", (10, y_off),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (204, 255, 0), 1)
-                y_off += 22
-
-    return frame
 
 
 # ─── MODULE 3: Pro Compare ───────────────────────────────────────────
@@ -445,24 +488,7 @@ def predict_ball_flight(speed_mph, launch_angle, contact_height, spin_rpm,
 # ─── BUILD GRADIO APP ─────────────────────────────────────────────────
 
 def build_app():
-    theme = gr.themes.Base(
-        primary_hue=gr.themes.Color(
-            c50="#f7ffe6", c100="#eeffcc", c200="#ddff99", c300="#ccff66",
-            c400="#ccff00", c500="#b8e600", c600="#a3cc00", c700="#8fb300",
-            c800="#7a9900", c900="#668000", c950="#527000",
-        ),
-        neutral_hue="zinc",
-    ).set(
-        body_background_fill="#0D0D0D",
-        body_background_fill_dark="#0D0D0D",
-        block_background_fill="#1a1a1a",
-        block_background_fill_dark="#1a1a1a",
-        block_border_color="#333333",
-        button_primary_background_fill="#CCFF00",
-        button_primary_text_color="#0D0D0D",
-    )
-
-    with gr.Blocks(theme=theme, title="SwingForge AI") as app:
+    with gr.Blocks(title="SwingForge AI") as app:
         gr.Markdown(
             "# SwingForge AI\n"
             "### Drop a video. Mirror a legend. Fix your swing.\n"
@@ -498,22 +524,30 @@ def build_app():
 
             # ── Tab 2: Live Webcam ──
             with gr.TabItem("Live Webcam"):
-                gr.Markdown("Stand in front of your webcam and swing! Real-time pose overlay and metrics.")
+                gr.Markdown(
+                    "**Press Record, stand 6-8 feet back, and swing!** "
+                    "The analyzed feed shows your skeleton + joint angles in real time."
+                )
                 hand_select_live = gr.Radio(
                     choices=['right', 'left'], value='right',
                     label="Playing Hand"
                 )
-                webcam_input = gr.Image(
-                    sources=["webcam"], streaming=True,
-                    label="Live Webcam Feed"
-                )
-                webcam_output = gr.Image(label="Analyzed Feed")
+                with gr.Row():
+                    webcam_feed = gr.Image(
+                        sources=["webcam"],
+                        streaming=True,
+                        label="Press Record to start live analysis",
+                    )
+                    webcam_output = gr.Image(
+                        label="Analyzed Feed (skeleton + angles)",
+                    )
 
-                webcam_input.stream(
+                webcam_feed.stream(
                     fn=process_webcam_frame,
-                    inputs=[webcam_input, hand_select_live],
+                    inputs=[webcam_feed, hand_select_live],
                     outputs=webcam_output,
-                    stream_every=0.05,
+                    stream_every=0.1,
+                    time_limit=600,
                 )
 
             # ── Tab 3: Pro Compare ──
@@ -609,7 +643,7 @@ def build_app():
 
 def launch():
     app = build_app()
-    app.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    app.launch(server_name="127.0.0.1", server_port=7860, share=False)
 
 
 if __name__ == "__main__":

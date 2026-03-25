@@ -1,15 +1,19 @@
 """
-PoseEngine — MediaPipe Pose wrapper for tennis swing analysis.
+PoseEngine — MediaPipe Pose Landmarker wrapper for tennis swing analysis.
+Uses the new Tasks API (mediapipe 0.10.14+).
 Extracts 33 body keypoints, calculates joint angles, and tracks
 wrist/elbow velocities for swing phase detection.
 """
 
 import cv2
 import numpy as np
+import os
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 
 
-# MediaPipe Pose landmark indices
+# MediaPipe Pose landmark indices (same as legacy API)
 LANDMARKS = {
     'nose': 0,
     'left_shoulder': 11, 'right_shoulder': 12,
@@ -33,31 +37,43 @@ SKELETON_CONNECTIONS = [
     ('right_hip', 'right_knee'), ('right_knee', 'right_ankle'),
 ]
 
+# Default model path
+DEFAULT_MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), 'data', 'models', 'pose_landmarker_lite.task'
+)
+
 
 class PoseEngine:
-    def __init__(self, min_detection_confidence=0.5, min_tracking_confidence=0.5):
-        self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=1,
-            smooth_landmarks=True,
-            min_detection_confidence=min_detection_confidence,
+    def __init__(self, model_path=None, min_detection_confidence=0.5,
+                 min_tracking_confidence=0.5):
+        if model_path is None:
+            model_path = DEFAULT_MODEL_PATH
+
+        base_options = python.BaseOptions(model_asset_path=model_path)
+        options = vision.PoseLandmarkerOptions(
+            base_options=base_options,
+            running_mode=vision.RunningMode.IMAGE,
+            min_pose_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
+        self.landmarker = vision.PoseLandmarker.create_from_options(options)
 
     def extract_keypoints(self, frame):
         """Extract 33 pose keypoints from a single frame.
         Returns dict of {landmark_name: (x_px, y_px, z, visibility)} or None if no pose detected.
         """
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.pose.process(rgb)
-        if not results.pose_landmarks:
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = self.landmarker.detect(mp_image)
+
+        if not result.pose_landmarks or len(result.pose_landmarks) == 0:
             return None
 
         h, w = frame.shape[:2]
+        landmarks = result.pose_landmarks[0]  # first person
         keypoints = {}
         for name, idx in LANDMARKS.items():
-            lm = results.pose_landmarks.landmark[idx]
+            lm = landmarks[idx]
             keypoints[name] = (lm.x * w, lm.y * h, lm.z, lm.visibility)
         return keypoints
 
@@ -84,7 +100,6 @@ class PoseEngine:
             return None
 
         s = side
-        o = 'left' if side == 'right' else 'right'  # opposite side
 
         angles = {}
 
@@ -99,11 +114,6 @@ class PoseEngine:
         )
 
         # Hip rotation: angle between shoulder line and hip line (projected to 2D)
-        shoulder_mid = np.array([(keypoints['left_shoulder'][0] + keypoints['right_shoulder'][0]) / 2,
-                                  (keypoints['left_shoulder'][1] + keypoints['right_shoulder'][1]) / 2])
-        hip_mid = np.array([(keypoints['left_hip'][0] + keypoints['right_hip'][0]) / 2,
-                             (keypoints['left_hip'][1] + keypoints['right_hip'][1]) / 2])
-
         shoulder_vec = np.array([keypoints['right_shoulder'][0] - keypoints['left_shoulder'][0],
                                   keypoints['right_shoulder'][1] - keypoints['left_shoulder'][1]])
         hip_vec = np.array([keypoints['right_hip'][0] - keypoints['left_hip'][0],
@@ -126,7 +136,6 @@ class PoseEngine:
         # Contact point height relative to hip
         hip_y = keypoints[f'{s}_hip'][1]
         wrist_y = keypoints[f'{s}_wrist'][1]
-        # In image coords, y increases downward, so lower y = higher position
         angles['contact_height_ratio'] = hip_y / (wrist_y + 1e-8)
 
         return angles
@@ -155,17 +164,12 @@ class PoseEngine:
         return accels
 
     def draw_skeleton(self, frame, keypoints, color=(0, 255, 127), thickness=2, alpha=1.0):
-        """Draw pose skeleton on frame.
-        Args:
-            color: BGR tuple, default neon green
-            alpha: opacity (1.0 = fully opaque)
-        """
+        """Draw pose skeleton on frame."""
         if keypoints is None:
             return frame
 
         overlay = frame.copy() if alpha < 1.0 else frame
 
-        # Draw connections
         for start, end in SKELETON_CONNECTIONS:
             if start in keypoints and end in keypoints:
                 p1 = (int(keypoints[start][0]), int(keypoints[start][1]))
@@ -175,7 +179,6 @@ class PoseEngine:
                 if vis1 > 0.5 and vis2 > 0.5:
                     cv2.line(overlay, p1, p2, color, thickness)
 
-        # Draw keypoints
         for name, kp in keypoints.items():
             vis = kp[3] if len(kp) > 3 else 1.0
             if vis > 0.5:
@@ -212,4 +215,4 @@ class PoseEngine:
         return frame
 
     def release(self):
-        self.pose.close()
+        self.landmarker.close()

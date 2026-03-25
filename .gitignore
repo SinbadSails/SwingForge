@@ -36,3 +36,4 @@ training/tennis-ball-detection-6/tennis-ball-detection-6/
 # Env
 .env
 venv/
+data/models/*.task
