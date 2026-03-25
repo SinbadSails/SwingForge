@@ -1,0 +1,25 @@
+{
+  "player": "Carlos Alcaraz",
+  "stroke": "forehand",
+  "hand": "right",
+  "description": "Explosive wrist snap, contact well out in front, aggressive topspin",
+  "contact_angles": {
+    "elbow_angle": 142.0,
+    "hip_rotation": 95.0,
+    "shoulder_angle": 100.0,
+    "knee_angle": 138.0,
+    "racket_lag": 48.0,
+    "contact_height_ratio": 1.10
+  },
+  "loading_angles": {
+    "elbow_angle": 78.0,
+    "hip_rotation": 12.0,
+    "shoulder_angle": 40.0,
+    "knee_angle": 115.0,
+    "racket_lag": 70.0
+  },
+  "swing_plane_angle": 28.0,
+  "avg_ball_speed_mph": 87,
+  "avg_topspin_rpm": 2800,
+  "keypoint_sequence": []
+}

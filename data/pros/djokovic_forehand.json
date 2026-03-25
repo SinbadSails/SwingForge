@@ -1,0 +1,25 @@
+{
+  "player": "Novak Djokovic",
+  "stroke": "forehand",
+  "hand": "right",
+  "description": "Exceptional hip drive, low-to-high swing path, full extension at contact",
+  "contact_angles": {
+    "elbow_angle": 138.0,
+    "hip_rotation": 92.0,
+    "shoulder_angle": 95.0,
+    "knee_angle": 142.0,
+    "racket_lag": 55.0,
+    "contact_height_ratio": 1.05
+  },
+  "loading_angles": {
+    "elbow_angle": 85.0,
+    "hip_rotation": 15.0,
+    "shoulder_angle": 45.0,
+    "knee_angle": 120.0,
+    "racket_lag": 65.0
+  },
+  "swing_plane_angle": 22.0,
+  "avg_ball_speed_mph": 82,
+  "avg_topspin_rpm": 2200,
+  "keypoint_sequence": []
+}

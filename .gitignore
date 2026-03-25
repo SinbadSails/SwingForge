@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Large video files
+input_videos/*.mp4
+input_videos/*.avi
+input_videos/*.mov
+output_videos/*.mp4
+output_videos/*.avi
+*.mp4
+!data/pros/*.json
+
+# Model weights (download separately)
+models/*.pt
+models/*.pth
+models/*.onnx
+*.pt
+*.pth
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Training data images (too large for git, download separately)
+training/tennis-ball-detection-6/tennis-ball-detection-6/
+
+# Env
+.env
+venv/

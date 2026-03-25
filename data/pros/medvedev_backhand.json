@@ -1,0 +1,25 @@
+{
+  "player": "Daniil Medvedev",
+  "stroke": "backhand",
+  "hand": "right",
+  "description": "Flat, compact, shoulder-driven two-handed backhand with deep contact",
+  "contact_angles": {
+    "elbow_angle": 148.0,
+    "hip_rotation": 82.0,
+    "shoulder_angle": 88.0,
+    "knee_angle": 145.0,
+    "racket_lag": 42.0,
+    "contact_height_ratio": 1.0
+  },
+  "loading_angles": {
+    "elbow_angle": 90.0,
+    "hip_rotation": 18.0,
+    "shoulder_angle": 50.0,
+    "knee_angle": 125.0,
+    "racket_lag": 55.0
+  },
+  "swing_plane_angle": 10.0,
+  "avg_ball_speed_mph": 75,
+  "avg_topspin_rpm": 1200,
+  "keypoint_sequence": []
+}

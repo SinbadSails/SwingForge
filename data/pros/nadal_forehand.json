@@ -1,0 +1,25 @@
+{
+  "player": "Rafael Nadal",
+  "stroke": "forehand",
+  "hand": "left",
+  "description": "Extreme topspin wrist roll, high follow-through over shoulder, heavy ball",
+  "contact_angles": {
+    "elbow_angle": 130.0,
+    "hip_rotation": 88.0,
+    "shoulder_angle": 85.0,
+    "knee_angle": 135.0,
+    "racket_lag": 60.0,
+    "contact_height_ratio": 0.95
+  },
+  "loading_angles": {
+    "elbow_angle": 80.0,
+    "hip_rotation": 10.0,
+    "shoulder_angle": 38.0,
+    "knee_angle": 110.0,
+    "racket_lag": 72.0
+  },
+  "swing_plane_angle": 35.0,
+  "avg_ball_speed_mph": 78,
+  "avg_topspin_rpm": 3200,
+  "keypoint_sequence": []
+}

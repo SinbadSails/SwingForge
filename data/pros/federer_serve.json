@@ -1,0 +1,25 @@
+{
+  "player": "Roger Federer",
+  "stroke": "serve",
+  "hand": "right",
+  "description": "Perfect trophy position, fluid pronation, effortless power",
+  "contact_angles": {
+    "elbow_angle": 170.0,
+    "hip_rotation": 75.0,
+    "shoulder_angle": 172.0,
+    "knee_angle": 155.0,
+    "racket_lag": 30.0,
+    "contact_height_ratio": 2.1
+  },
+  "loading_angles": {
+    "elbow_angle": 90.0,
+    "hip_rotation": 20.0,
+    "shoulder_angle": 160.0,
+    "knee_angle": 105.0,
+    "racket_lag": 45.0
+  },
+  "swing_plane_angle": 8.0,
+  "avg_ball_speed_mph": 125,
+  "avg_topspin_rpm": 1800,
+  "keypoint_sequence": []
+}
