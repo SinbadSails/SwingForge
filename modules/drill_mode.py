@@ -274,8 +274,8 @@ def draw_drill_hud(frame, drill, current_value, swing_num, swing_history,
     # ── FPS + controls ──
     cv2.putText(frame, f"{fps:.0f} FPS", (w - 80, h - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
-    cv2.putText(frame, "Hands UP=Pause | Arms WIDE=Resume | Hands DOWN=Next | Left UP=Restart",
-                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (80, 80, 80), 1)
+    cv2.putText(frame, "Hands UP=Pause | T-pose=Resume | Say drill name or press [1-0] | [H]ome [Q]uit",
+                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (80, 80, 80), 1)
 
     return frame
 
@@ -363,8 +363,41 @@ def draw_session_summary(frame, drill, swing_history):
             prev_y = graph_y + int((1 - (prev_val - vmin) / (vmax - vmin)) * graph_h)
             cv2.line(frame, (prev_x, prev_y), (x, y_pt), (150, 150, 150), 1)
 
-    cv2.putText(frame, "Press [R] to restart or [Q] to quit",
-                (w//2 - 180, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (120, 120, 120), 1)
+    cv2.putText(frame, "Say 'restart' or drill name | Press [R] or [H]ome or [Q]uit",
+                (w//2 - 250, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (120, 120, 120), 1)
+
+    return frame
+
+
+def draw_home_screen(frame):
+    """Draw the home/menu screen where user picks a drill."""
+    h, w = frame.shape[:2]
+    frame[:] = (20, 20, 20)
+
+    cv2.putText(frame, "SWINGFORGE DRILL MODE", (w//2 - 180, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (204, 255, 0), 2)
+    cv2.putText(frame, "Say a drill name or press a key to start", (w//2 - 200, 85),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 160), 1)
+
+    y = 130
+    for cat_name, drill_ids in DRILL_CATEGORIES.items():
+        cv2.putText(frame, cat_name, (60, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (204, 255, 0), 2)
+        y += 30
+        for did in drill_ids:
+            d = DRILLS[did]
+            key_label = str(did) if did < 10 else '0'
+            cv2.putText(frame, f"  [{key_label}]  {d['name']}", (80, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, d['color'], 1)
+            cv2.putText(frame, f"  target: {d['target'][0]}-{d['target'][1]}{d['unit']}",
+                        (350, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120, 120, 120), 1)
+            y += 25
+        y += 15
+
+    cv2.putText(frame, 'Say: "knee", "shoulder", "trophy", "serve", "elbow", "ready"...',
+                (60, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 160), 1)
+    cv2.putText(frame, "Press a number key or say a drill name to begin  |  [Q] Quit",
+                (60, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (120, 120, 120), 1)
 
     return frame
 
@@ -391,16 +424,15 @@ def run_drill_mode(playing_hand='right'):
     cap.set(cv2.CAP_PROP_FPS, 30)
 
     # State
-    current_drill_id = 1
-    drill = DRILLS[current_drill_id]
+    current_drill_id = None  # None = home screen
+    drill = None
     swing_history = []
     feedback_text = ""
     feedback_color = (200, 200, 200)
     feedback_time = 0
-    show_summary = False
-    paused = False
+    screen = 'HOME'  # HOME, DRILL, SUMMARY, PAUSED
     live_value = None
-    state = 'IDLE'
+    swing_state = 'IDLE'
 
     frame_count = 0
     fps = 0
@@ -408,25 +440,69 @@ def run_drill_mode(playing_hand='right'):
 
     print(f"\n  SwingForge Drill Mode")
     print(f"  ─────────────────────")
-    print(f"  GROUNDSTROKE:")
-    print(f"    [1] Knee Bend  [2] Shoulder Turn  [3] Racket Lag")
-    print(f"    [4] Elbow Extension  [5] Follow-Through")
-    print(f"  SERVE:")
-    print(f"    [6] Trophy Position  [7] Serve Knee Load  [8] Serve Extension")
-    print(f"  FUNDAMENTALS:")
-    print(f"    [9] Ready Position  [0] Split Step")
-    print(f"  GESTURES (hands-free):")
-    print(f"    Both hands UP (hold 1s) → Pause/Resume")
-    print(f"    Both hands DOWN (hold 1s) → Next drill")
-    print(f"    Left hand UP only (hold 1s) → Restart drill")
-    print(f"  KEYS: [SPACE] Pause  [R] Restart  [V] Voice  [Q] Quit\n")
+    print(f"  Say a drill name or press a number key:")
+    print(f"    [1] Knee  [2] Shoulder  [3] Lag  [4] Elbow  [5] Follow")
+    print(f"    [6] Trophy  [7] Serve Knee  [8] Serve Ext  [9] Ready  [0] Split")
+    print(f"  Hands UP = Pause  |  T-pose = Resume  |  [H] Home  |  [Q] Quit\n")
 
-    voice_coach.say(f"Drill mode. Working on {drill['name']}. {drill['instruction']}")
+    voice_coach.say("Drill mode. Say a drill name to begin.")
 
     cv2.namedWindow('SwingForge Drill', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('SwingForge Drill', 1280, 720)
 
     dropped = 0
+
+    def switch_drill(new_id):
+        """Helper to switch to a drill and reset state."""
+        nonlocal current_drill_id, drill, swing_history, swing_detector
+        nonlocal feedback_text, screen, swing_state, gesture_detector
+        current_drill_id = new_id
+        drill = DRILLS[new_id]
+        swing_history = []
+        swing_detector = SwingDetector(fps=30)
+        gesture_detector = GestureDetector()
+        feedback_text = ""
+        screen = 'DRILL'
+        swing_state = 'IDLE'
+        voice_coach.say(f"{drill['name']}. {drill['instruction']}")
+        print(f"  → Drill: {drill['name']}")
+
+    def check_voice_and_keys(key):
+        """Check voice commands and keyboard on ANY screen. Returns True if should break."""
+        nonlocal screen
+        # Voice commands — always checked
+        vcmd = voice_cmds.get_command()
+        if vcmd == 'quit' or key == ord('q') or key == 27:
+            return True
+        if vcmd == 'pause' or key == ord(' '):
+            if screen == 'DRILL':
+                screen = 'PAUSED'
+                gesture_detector.is_paused = True
+                voice_coach.say("Paused.")
+            elif screen == 'PAUSED':
+                screen = 'DRILL'
+                gesture_detector.is_paused = False
+                voice_coach.say("Resumed.")
+        elif vcmd == 'restart' or key == ord('r'):
+            if drill:
+                switch_drill(current_drill_id)
+        elif key == ord('h'):
+            screen = 'HOME'
+            voice_coach.say("Home screen.")
+        elif vcmd == 'next_drill':
+            if drill:
+                drill_ids = sorted(DRILLS.keys())
+                idx = drill_ids.index(current_drill_id) if current_drill_id in drill_ids else 0
+                switch_drill(drill_ids[(idx + 1) % len(drill_ids)])
+        elif isinstance(vcmd, int) and vcmd in DRILLS:
+            switch_drill(vcmd)
+        elif isinstance(key, int):
+            # Number key pressed
+            if key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
+                new_id = (key - ord('0')) if key != ord('0') else 10
+                if new_id in DRILLS:
+                    switch_drill(new_id)
+        return False
 
     while True:
         ret, frame = cap.read()
@@ -446,33 +522,26 @@ def run_drill_mode(playing_hand='right'):
             frame_count = 0
             fps_timer = now
 
-        if show_summary:
+        # ── HOME SCREEN ──
+        if screen == 'HOME':
+            frame = draw_home_screen(frame)
+            cv2.imshow('SwingForge Drill', frame)
+            key = cv2.waitKey(1) & 0xFF
+            if check_voice_and_keys(key):
+                break
+            continue
+
+        # ── SUMMARY SCREEN ──
+        if screen == 'SUMMARY':
             frame = draw_session_summary(frame, drill, swing_history)
             cv2.imshow('SwingForge Drill', frame)
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('r'):
-                swing_history = []
-                swing_detector = SwingDetector(fps=30)
-                show_summary = False
-                feedback_text = ""
-                voice_coach.say(f"Restarting {drill['name']} drill.")
-            elif key == ord('q') or key == 27:
+            if check_voice_and_keys(key):
                 break
-            elif key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
-                new_id = (key - ord('0')) if key != ord('0') else 10
-                if new_id in DRILLS:
-                    current_drill_id = new_id
-                    drill = DRILLS[current_drill_id]
-                    swing_history = []
-                    swing_detector = SwingDetector(fps=30)
-                    show_summary = False
-                    feedback_text = ""
-                    voice_coach.say(f"Switching to {drill['name']}. {drill['instruction']}")
             continue
 
-        # Pause handling — check gestures even while paused
-        if paused:
-            # Still extract pose for gesture detection while paused
+        # ── PAUSED SCREEN ──
+        if screen == 'PAUSED':
             try:
                 pause_kp = pose_engine.extract_keypoints(frame)
             except Exception:
@@ -485,37 +554,23 @@ def run_drill_mode(playing_hand='right'):
             cv2.rectangle(frame, (w//2 - 140, h//2 - 50), (w//2 + 140, h//2 + 50), (204, 255, 0), 2)
             cv2.putText(frame, "PAUSED", (w//2 - 55, h//2 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (204, 255, 0), 2)
-            cv2.putText(frame, "Arms out wide to resume", (w//2 - 120, h//2 + 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 160), 1)
+            cv2.putText(frame, "T-pose or SPACE to resume | Say drill name to switch",
+                        (w//2 - 210, h//2 + 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (160, 160, 160), 1)
 
             if pause_hint:
                 cv2.putText(frame, pause_hint, (w//2 - 120, h//2 + 45),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, (204, 255, 0), 1)
 
             if pause_gesture == 'resume':
-                paused = False
+                screen = 'DRILL'
                 gesture_detector.is_paused = False
                 voice_coach.say("Resumed.")
 
             cv2.imshow('SwingForge Drill', frame)
             key = cv2.waitKey(1) & 0xFF
-            if key == ord(' '):
-                paused = False
-                gesture_detector.is_paused = False
-                voice_coach.say("Resumed.")
-            elif key == ord('q') or key == 27:
+            if check_voice_and_keys(key):
                 break
-            elif key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
-                new_id = (key - ord('0')) if key != ord('0') else 10
-                if new_id in DRILLS:
-                    current_drill_id = new_id
-                    drill = DRILLS[current_drill_id]
-                    swing_history = []
-                    swing_detector = SwingDetector(fps=30)
-                    show_summary = False
-                    paused = False
-                    feedback_text = ""
-                    voice_coach.say(f"{drill['name']}. {drill['instruction']}")
             continue
 
         try:
@@ -545,76 +600,21 @@ def run_drill_mode(playing_hand='right'):
         if angles and drill['metric'] in angles:
             live_value = angles[drill['metric']]
 
-        # Gesture detection (hands-free control)
+        # Gesture detection — only pause gesture now
         gesture = gesture_detector.update(user_kp)
         gesture_hint = gesture_detector.get_gesture_hint(user_kp)
 
-        # Show gesture hint on screen
-        if gesture_hint and not paused:
+        if gesture_hint:
             cv2.putText(frame, gesture_hint, (w // 2 - 150, h // 2),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (204, 255, 0), 2)
 
-        if gesture == 'pause' and not paused:
-            paused = True
+        if gesture == 'pause':
+            screen = 'PAUSED'
             gesture_detector.is_paused = True
-            voice_coach.say("Paused. Arms out wide to resume.")
-        elif gesture == 'resume' and paused:
-            paused = False
-            gesture_detector.is_paused = False
-            voice_coach.say("Resumed.")
-        elif gesture == 'next_drill':
-            # Cycle to next drill
-            drill_ids = sorted(DRILLS.keys())
-            idx = drill_ids.index(current_drill_id) if current_drill_id in drill_ids else 0
-            current_drill_id = drill_ids[(idx + 1) % len(drill_ids)]
-            drill = DRILLS[current_drill_id]
-            swing_history = []
-            swing_detector = SwingDetector(fps=30)
-            show_summary = False
-            feedback_text = ""
-            voice_coach.say(f"{drill['name']}. {drill['instruction']}")
-            print(f"  Gesture → Drill: {drill['name']}")
-        elif gesture == 'restart':
-            swing_history = []
-            swing_detector = SwingDetector(fps=30)
-            feedback_text = ""
-            show_summary = False
-            voice_coach.say(f"Restarting {drill['name']}.")
-            print(f"  Gesture → Restart")
+            voice_coach.say("Paused.")
+        # (next_drill and restart handled by voice commands via check_voice_and_keys)
 
-        # Check voice commands (hands-free drill switching)
-        vcmd = voice_cmds.get_command()
-        if vcmd == 'quit':
-            break
-        elif vcmd == 'pause':
-            paused = not paused
-            voice_coach.say("Paused." if paused else "Resumed.")
-        elif vcmd == 'restart':
-            swing_history = []
-            swing_detector = SwingDetector(fps=30)
-            feedback_text = ""
-            show_summary = False
-            voice_coach.say(f"Restarting {drill['name']}.")
-        elif vcmd == 'next_drill':
-            drill_ids = sorted(DRILLS.keys())
-            idx = drill_ids.index(current_drill_id) if current_drill_id in drill_ids else 0
-            current_drill_id = drill_ids[(idx + 1) % len(drill_ids)]
-            drill = DRILLS[current_drill_id]
-            swing_history = []
-            swing_detector = SwingDetector(fps=30)
-            show_summary = False
-            feedback_text = ""
-            voice_coach.say(f"{drill['name']}. {drill['instruction']}")
-            print(f"  Voice → Next: {drill['name']}")
-        elif isinstance(vcmd, int) and vcmd in DRILLS:
-            current_drill_id = vcmd
-            drill = DRILLS[current_drill_id]
-            swing_history = []
-            swing_detector = SwingDetector(fps=30)
-            show_summary = False
-            feedback_text = ""
-            voice_coach.say(f"{drill['name']}. {drill['instruction']}")
-            print(f"  Voice → Drill: {drill['name']}")
+        # (Voice commands + keys handled by check_voice_and_keys at end of loop)
 
         # Swing detection (with walking filter via hip_pos)
         wrist_pos = user_kp['right_wrist'][:2] if user_kp and 'right_wrist' in user_kp else None
@@ -670,7 +670,7 @@ def run_drill_mode(playing_hand='right'):
 
                 # Check if drill is complete
                 if swing_num >= SWINGS_PER_DRILL:
-                    show_summary = True
+                    screen = "SUMMARY"
                     in_target = sum(1 for v in swing_history if low <= v <= high)
                     voice_coach.say(
                         f"Drill complete. {in_target} out of {SWINGS_PER_DRILL} in the target zone. "
@@ -695,39 +695,8 @@ def run_drill_mode(playing_hand='right'):
         cv2.imshow('SwingForge Drill', frame)
 
         key = cv2.waitKey(1) & 0xFF
-        if key == ord('q') or key == 27:
+        if check_voice_and_keys(key):
             break
-        elif key == ord(' '):
-            paused = True
-            voice_coach.say("Paused.")
-        elif key == ord('r'):
-            swing_history = []
-            swing_detector = SwingDetector(fps=30)
-            feedback_text = ""
-            voice_coach.say(f"Restarting {drill['name']} drill.")
-        elif key == ord('v'):
-            voice_coach.enabled = not voice_coach.enabled
-            print(f"  Voice: {'ON' if voice_coach.enabled else 'OFF'}")
-        elif key == ord('m'):
-            voice_cmds_enabled = not voice_cmds.enabled if hasattr(voice_cmds, 'enabled') else False
-            if not voice_cmds_enabled:
-                voice_cmds = VoiceCommands(enabled=True)
-                print("  Voice commands: ON (say drill names)")
-            else:
-                voice_cmds.stop()
-                voice_cmds = VoiceCommands(enabled=False)
-                print("  Voice commands: OFF")
-        elif key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
-            new_id = (key - ord('0')) if key != ord('0') else 10
-            if new_id in DRILLS:
-                current_drill_id = new_id
-                drill = DRILLS[current_drill_id]
-                swing_history = []
-                swing_detector = SwingDetector(fps=30)
-                show_summary = False
-                feedback_text = ""
-                voice_coach.say(f"Switching to {drill['name']}. {drill['instruction']}")
-                print(f"  Drill: {drill['name']}")
 
     # Final summary
     voice_coach.stop()

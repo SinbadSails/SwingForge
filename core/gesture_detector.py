@@ -96,21 +96,10 @@ class GestureDetector:
             # Ignore all other gestures while paused
             return None
 
+        # Only two gestures — simple and reliable:
         # BOTH HANDS UP → pause
         if left_above_shoulder and right_above_shoulder:
             return 'pause'
-
-        # T-POSE → also works as resume when not paused (no-op, but recognized)
-        if is_tpose:
-            return None  # not paused, t-pose does nothing
-
-        # BOTH HANDS DOWN → next drill (only when NOT paused)
-        if left_below_hip and right_below_hip:
-            return 'next_drill'
-
-        # LEFT HAND UP ONLY → restart (only when NOT paused)
-        if left_above_shoulder and not right_above_shoulder:
-            return 'restart'
 
         return None
 
