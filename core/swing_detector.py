@@ -32,12 +32,17 @@ class SwingDetector:
         # Velocity tracking
         self.velocity_history = deque(maxlen=30)
 
-        # Thresholds (tuned for 720p webcam at ~6ft distance)
-        self.start_threshold = 12.0  # px/frame — wrist must move this fast to start
-        self.peak_threshold = 20.0   # px/frame — must reach this to count as a real swing
-        self.end_threshold = 5.0     # px/frame — velocity drops below this = swing over
-        self.min_swing_frames = 8    # minimum frames for a valid swing (~0.25s)
-        self.max_swing_frames = 60   # maximum frames (~2s) — cap it
+        # Thresholds — expressed as fraction of torso length per frame.
+        # This auto-adapts to user distance from camera.
+        # At 6ft with 150px torso: start = 0.08 * 150 = 12px/frame
+        # At 10ft with 80px torso: start = 0.08 * 80 = 6.4px/frame (still triggers)
+        # At 3ft with 300px torso: start = 0.08 * 300 = 24px/frame (harder to false-trigger)
+        self.start_ratio = 0.08     # fraction of torso length for swing start
+        self.peak_ratio = 0.13      # fraction of torso length for real swing confirmation
+        self.end_ratio = 0.03       # fraction of torso length for swing end
+        self.torso_length = 150     # default, updated each frame from keypoints
+        self.min_swing_frames = 8   # minimum frames for a valid swing (~0.25s)
+        self.max_swing_frames = 60  # maximum frames (~2s) — cap it
 
         # Cooldown
         self.cooldown_frames = 30  # frames to wait after a swing before detecting next
@@ -47,12 +52,18 @@ class SwingDetector:
         self.completed_swings = []  # list of swing dicts
         self.peak_velocity = 0
 
-    def update(self, wrist_pos, frame=None, keypoints=None, angles=None):
+    def update(self, wrist_pos, frame=None, keypoints=None, angles=None,
+               torso_length=None):
         """Call every frame with current wrist (x, y) position.
+        torso_length: shoulder-to-hip distance in pixels (for distance-adaptive thresholds)
         Returns: 'IDLE', 'SWINGING', or a swing_result dict when a swing completes.
         """
         if wrist_pos is None:
             return self.state
+
+        # Update torso length for adaptive thresholds
+        if torso_length is not None and torso_length > 20:
+            self.torso_length = torso_length
 
         self.wrist_history.append(wrist_pos)
 
@@ -65,6 +76,11 @@ class SwingDetector:
             velocity = 0
         self.velocity_history.append(velocity)
 
+        # Adaptive thresholds based on torso length (distance from camera)
+        start_threshold = self.start_ratio * self.torso_length
+        peak_threshold = self.peak_ratio * self.torso_length
+        end_threshold = self.end_ratio * self.torso_length
+
         # Cooldown after a swing
         if self.cooldown_counter > 0:
             self.cooldown_counter -= 1
@@ -72,7 +88,7 @@ class SwingDetector:
 
         # State machine
         if self.state == 'IDLE':
-            if velocity > self.start_threshold:
+            if velocity > start_threshold:
                 self.state = 'SWINGING'
                 self.swing_frame_count = 0
                 self.swing_frames = []
@@ -107,13 +123,13 @@ class SwingDetector:
 
             swing_ended = (
                 swing_len >= self.min_swing_frames and
-                avg_recent_vel < self.end_threshold
+                avg_recent_vel < end_threshold
             )
             swing_too_long = swing_len >= self.max_swing_frames
 
             if swing_ended or swing_too_long:
                 # Check if it was a real swing (reached peak threshold)
-                if self.peak_velocity >= self.peak_threshold:
+                if self.peak_velocity >= peak_threshold:
                     result = self._score_swing()
                     self.state = 'IDLE'
                     self.cooldown_counter = self.cooldown_frames

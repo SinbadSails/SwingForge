@@ -155,9 +155,22 @@ def draw_hud(frame, pro_name, phase, sync_scores, overall_sync, tip, fps,
                     (px, py + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (160, 160, 160), 1)
     py += lh + 8
 
-    # Sync bars
+    # Score bars — use proper metric labels
+    metric_labels = {
+        'shoulder_angle': 'Shoulder Turn',
+        'knee_angle': 'Knee Bend',
+        'racket_lag': 'Racket Lag',
+        'elbow_angle': 'Elbow (est.)',
+        'hip_rotation': 'Hip Rot (est.)',
+        'follow_through': 'Follow-Thru',
+        # Legacy joint-name keys (fallback)
+        'right_wrist': 'R.Wrist',
+        'right_elbow': 'R.Elbow',
+        'right_shoulder': 'R.Shoulder',
+        'right_hip': 'R.Hip',
+    }
     for joint_name, score in sync_scores.items():
-        nice = joint_name.replace('right_', 'R.').replace('_', ' ').title()
+        nice = metric_labels.get(joint_name, joint_name.replace('_', ' ').title())
         bar_w = 100
         filled = int(bar_w * score / 100)
         c = (0, 255, 0) if score > 80 else (0, 255, 255) if score > 50 else (0, 0, 255)
@@ -383,7 +396,14 @@ def run_shadow_mode(playing_hand='right'):
 
             # ── Swing detection (state machine) ──
             wrist_pos = user_kp['right_wrist'][:2] if user_kp and 'right_wrist' in user_kp else None
-            swing_result = swing_detector.update(wrist_pos, frame, user_kp, angles)
+            # Calculate torso length for distance-adaptive thresholds
+            torso_len = None
+            if user_kp:
+                hip_y = (user_kp['left_hip'][1] + user_kp['right_hip'][1]) / 2
+                shoulder_y = (user_kp['left_shoulder'][1] + user_kp['right_shoulder'][1]) / 2
+                torso_len = abs(hip_y - shoulder_y)
+            swing_result = swing_detector.update(wrist_pos, frame, user_kp, angles,
+                                                  torso_length=torso_len)
 
             if swing_detector.is_swinging:
                 phase = 'SWINGING'
