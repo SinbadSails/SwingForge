@@ -76,16 +76,18 @@ class BallPhysics:
             if v < 0.01:
                 return [0, 0, 0, 0, 0, 0]
 
-            # Drag force
-            F_drag = 0.5 * AIR_DENSITY * DRAG_COEFF * BALL_AREA * v
-            ax_drag = -F_drag * vx / (BALL_MASS * v)
-            ay_drag = -F_drag * vy / (BALL_MASS * v)
-            az_drag = -F_drag * vz / (BALL_MASS * v)
+            # Drag force: F = 0.5 * ρ * Cd * A * v²
+            F_drag = 0.5 * AIR_DENSITY * DRAG_COEFF * BALL_AREA * v * v
+            ax_drag = -F_drag * vx / (BALL_MASS * v + 1e-8)
+            ay_drag = -F_drag * vy / (BALL_MASS * v + 1e-8)
+            az_drag = -F_drag * vz / (BALL_MASS * v + 1e-8)
 
-            # Magnus force (topspin: force pushes ball down in flight)
-            # Simplified: topspin axis perpendicular to velocity in vertical plane
-            F_magnus = (4/3) * np.pi * BALL_RADIUS**3 * AIR_DENSITY * omega * v * 0.5
-            # Topspin causes downward force
+            # Magnus force (topspin): uses lift coefficient approach
+            # Cl ≈ 0.2-0.5 for tennis balls; spin parameter S = r*omega/v
+            spin_param = BALL_RADIUS * omega / (v + 1e-8)
+            Cl = min(0.5, 0.6 * spin_param)  # empirical lift coefficient
+            F_magnus = 0.5 * Cl * AIR_DENSITY * BALL_AREA * v * v
+            # Topspin causes downward force (negative y)
             ay_magnus = -F_magnus / BALL_MASS
 
             ax = ax_drag

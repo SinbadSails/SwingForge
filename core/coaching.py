@@ -10,27 +10,27 @@ import numpy as np
 # Ideal ranges for each metric (forehand defaults)
 IDEAL_RANGES = {
     'forehand': {
-        'elbow_angle': (120, 150),
-        'hip_rotation': (80, 100),
-        'shoulder_angle': (70, 110),
-        'knee_angle': (100, 150),  # 180 - bend, so 30° bend = 150°
-        'racket_lag': (40, 70),
-        'contact_height_ratio': (0.8, 1.2),
+        'elbow_angle': (128, 148),       # arm extension at contact (tight sweet spot)
+        'hip_rotation': (60, 95),        # real rotation required
+        'shoulder_angle': (80, 105),     # proper unit turn
+        'knee_angle': (120, 148),        # athletic stance
+        'racket_lag': (75, 110),         # forearm ~horizontal at contact
+        'contact_height_ratio': (0.9, 1.3),
     },
     'backhand': {
-        'elbow_angle': (130, 160),
-        'hip_rotation': (70, 95),
-        'shoulder_angle': (60, 100),
-        'knee_angle': (100, 150),
-        'racket_lag': (35, 65),
-        'contact_height_ratio': (0.8, 1.2),
+        'elbow_angle': (135, 158),
+        'hip_rotation': (55, 90),
+        'shoulder_angle': (65, 100),
+        'knee_angle': (120, 150),
+        'racket_lag': (65, 105),
+        'contact_height_ratio': (0.9, 1.3),
     },
     'serve': {
-        'elbow_angle': (155, 180),
-        'hip_rotation': (60, 90),
-        'shoulder_angle': (150, 180),
-        'knee_angle': (100, 140),
-        'racket_lag': (20, 50),
+        'elbow_angle': (158, 178),
+        'hip_rotation': (40, 75),
+        'shoulder_angle': (155, 178),
+        'knee_angle': (108, 140),
+        'racket_lag': (110, 165),
         'contact_height_ratio': (1.5, 2.5),
     },
 }
@@ -65,16 +65,26 @@ class CoachingEngine:
                     self.pro_data[key] = json.load(f)
 
     def score_metric(self, value, ideal_range):
-        """Score a single metric 0-100 based on distance from ideal range."""
+        """Score a single metric 0-100 based on distance from ideal range.
+        Penalty: -3.3 points per degree outside the range.
+        30° off = 0 score. Inside the range = 100.
+        """
         low, high = ideal_range
         if low <= value <= high:
-            return 100.0
+            # Bonus: score higher near the middle of the range
+            mid = (low + high) / 2
+            range_half = (high - low) / 2
+            dist_from_mid = abs(value - mid)
+            # 100 at center, 85 at edges of range
+            return 85.0 + 15.0 * (1.0 - dist_from_mid / (range_half + 1e-8))
+
         if value < low:
             dist = low - value
         else:
             dist = value - high
-        range_size = high - low
-        penalty = min(dist / (range_size + 1e-8) * 100, 100)
+
+        # -3.3 points per degree outside the range (0 at 30° off)
+        penalty = min(dist * 3.3, 100)
         return max(0.0, 100.0 - penalty)
 
     def score_swing(self, angles, stroke_type='forehand', follow_through_complete=True):

@@ -113,27 +113,48 @@ class PoseEngine:
             keypoints[f'{s}_elbow'], keypoints[f'{s}_shoulder'], keypoints[f'{s}_hip']
         )
 
-        # Hip rotation: angle between shoulder line and hip line (projected to 2D)
-        shoulder_vec = np.array([keypoints['right_shoulder'][0] - keypoints['left_shoulder'][0],
-                                  keypoints['right_shoulder'][1] - keypoints['left_shoulder'][1]])
-        hip_vec = np.array([keypoints['right_hip'][0] - keypoints['left_hip'][0],
-                             keypoints['right_hip'][1] - keypoints['left_hip'][1]])
+        # Hip rotation: use Z-depth difference between shoulders as rotation proxy.
+        # MediaPipe Z is depth relative to hip midpoint. Larger Z diff between
+        # left/right shoulder means more rotation (one shoulder closer to camera).
+        # We also use the 2D shoulder-width-to-hip-width ratio as a secondary cue:
+        # when rotated, the shoulder line appears shorter in 2D than the hip line.
+        shoulder_width_2d = np.sqrt(
+            (keypoints['right_shoulder'][0] - keypoints['left_shoulder'][0])**2 +
+            (keypoints['right_shoulder'][1] - keypoints['left_shoulder'][1])**2
+        )
+        hip_width_2d = np.sqrt(
+            (keypoints['right_hip'][0] - keypoints['left_hip'][0])**2 +
+            (keypoints['right_hip'][1] - keypoints['left_hip'][1])**2
+        )
+        # Width ratio: 1.0 = no rotation, <1 = shoulders rotated relative to hips
+        width_ratio = shoulder_width_2d / (hip_width_2d + 1e-8)
 
-        cos_rot = np.dot(shoulder_vec, hip_vec) / (np.linalg.norm(shoulder_vec) * np.linalg.norm(hip_vec) + 1e-8)
-        cos_rot = np.clip(cos_rot, -1.0, 1.0)
-        angles['hip_rotation'] = np.degrees(np.arccos(cos_rot))
+        # Z-based rotation: difference in Z between left and right shoulder
+        z_diff = abs(keypoints['right_shoulder'][2] - keypoints['left_shoulder'][2])
+
+        # Combined rotation estimate: map to 0-180° range
+        # width_ratio of 0.3 ≈ 90° rotation, 1.0 ≈ 0° rotation
+        rotation_from_width = max(0, min(180, (1.0 - width_ratio) * 150))
+        rotation_from_z = min(180, z_diff * 300)  # Z is normalized, scale up
+        angles['hip_rotation'] = max(rotation_from_width, rotation_from_z)
 
         # Knee bend: hip-knee-ankle
         angles['knee_angle'] = self.calculate_angle(
             keypoints[f'{s}_hip'], keypoints[f'{s}_knee'], keypoints[f'{s}_ankle']
         )
 
-        # Racket lag: wrist-elbow-shoulder angle at backswing
-        angles['racket_lag'] = self.calculate_angle(
-            keypoints[f'{s}_wrist'], keypoints[f'{s}_elbow'], keypoints[f'{s}_shoulder']
-        )
+        # Racket lag: angle between forearm (elbow→wrist) and the vertical axis.
+        # Measures how far the racket head is "lagging" behind during backswing.
+        # 0° = arm pointing straight down, 90° = arm horizontal, >90° = behind body
+        elbow = np.array(keypoints[f'{s}_elbow'][:2])
+        wrist = np.array(keypoints[f'{s}_wrist'][:2])
+        forearm_vec = wrist - elbow
+        vertical = np.array([0, 1])  # down in image coords
+        cos_lag = np.dot(forearm_vec, vertical) / (np.linalg.norm(forearm_vec) + 1e-8)
+        cos_lag = np.clip(cos_lag, -1.0, 1.0)
+        angles['racket_lag'] = np.degrees(np.arccos(cos_lag))
 
-        # Contact point height relative to hip
+        # Contact point height relative to hip (higher = serving/overhead)
         hip_y = keypoints[f'{s}_hip'][1]
         wrist_y = keypoints[f'{s}_wrist'][1]
         angles['contact_height_ratio'] = hip_y / (wrist_y + 1e-8)
