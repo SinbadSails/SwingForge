@@ -25,6 +25,7 @@ from core.pose_engine import PoseEngine, SKELETON_CONNECTIONS
 from core.swing_detector import SwingDetector
 from core.voice_coach import VoiceCoach
 from core.coaching import CoachingEngine
+from core.gesture_detector import GestureDetector
 
 # ── DRILL CATEGORIES ──
 DRILL_CATEGORIES = {
@@ -273,8 +274,8 @@ def draw_drill_hud(frame, drill, current_value, swing_num, swing_history,
     # ── FPS + controls ──
     cv2.putText(frame, f"{fps:.0f} FPS", (w - 80, h - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
-    cv2.putText(frame, "[1-5] Ground  [6-8] Serve  [9-0] Fund  [SPACE] Pause  [R]estart  [Q]uit",
-                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.33, (80, 80, 80), 1)
+    cv2.putText(frame, "Hands up=Pause | Hands down=Next | Left up=Restart | Keys: [1-0] [SPACE] [R] [Q]",
+                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (80, 80, 80), 1)
 
     return frame
 
@@ -374,9 +375,9 @@ def run_drill_mode(playing_hand='right'):
     pose_engine = PoseEngine()
     voice_coach = VoiceCoach(enabled=True, rate=170)
     swing_detector = SwingDetector(fps=30)
+    gesture_detector = GestureDetector()
 
     # Voice commands — disabled by default (Google API is unreliable)
-    # Press [M] to enable if you want to try them
     from core.voice_commands import VoiceCommands
     voice_cmds = VoiceCommands(enabled=False)
 
@@ -414,7 +415,11 @@ def run_drill_mode(playing_hand='right'):
     print(f"    [6] Trophy Position  [7] Serve Knee Load  [8] Serve Extension")
     print(f"  FUNDAMENTALS:")
     print(f"    [9] Ready Position  [0] Split Step")
-    print(f"  [SPACE] Pause  [R] Restart  [V] Voice  [M] Mic commands  [Q] Quit\n")
+    print(f"  GESTURES (hands-free):")
+    print(f"    Both hands UP (hold 1s) → Pause/Resume")
+    print(f"    Both hands DOWN (hold 1s) → Next drill")
+    print(f"    Left hand UP only (hold 1s) → Restart drill")
+    print(f"  KEYS: [SPACE] Pause  [R] Restart  [V] Voice  [Q] Quit\n")
 
     voice_coach.say(f"Drill mode. Working on {drill['name']}. {drill['instruction']}")
 
@@ -517,6 +522,38 @@ def run_drill_mode(playing_hand='right'):
         live_value = None
         if angles and drill['metric'] in angles:
             live_value = angles[drill['metric']]
+
+        # Gesture detection (hands-free control)
+        gesture = gesture_detector.update(user_kp)
+        gesture_hint = gesture_detector.get_gesture_hint(user_kp)
+
+        # Show gesture hint on screen
+        if gesture_hint and not paused:
+            cv2.putText(frame, gesture_hint, (w // 2 - 150, h // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (204, 255, 0), 2)
+
+        if gesture == 'pause':
+            paused = not paused
+            voice_coach.say("Paused." if paused else "Resumed.")
+        elif gesture == 'next_drill':
+            # Cycle to next drill
+            drill_ids = sorted(DRILLS.keys())
+            idx = drill_ids.index(current_drill_id) if current_drill_id in drill_ids else 0
+            current_drill_id = drill_ids[(idx + 1) % len(drill_ids)]
+            drill = DRILLS[current_drill_id]
+            swing_history = []
+            swing_detector = SwingDetector(fps=30)
+            show_summary = False
+            feedback_text = ""
+            voice_coach.say(f"{drill['name']}. {drill['instruction']}")
+            print(f"  Gesture → Drill: {drill['name']}")
+        elif gesture == 'restart':
+            swing_history = []
+            swing_detector = SwingDetector(fps=30)
+            feedback_text = ""
+            show_summary = False
+            voice_coach.say(f"Restarting {drill['name']}.")
+            print(f"  Gesture → Restart")
 
         # Check voice commands (hands-free drill switching)
         vcmd = voice_cmds.get_command()
