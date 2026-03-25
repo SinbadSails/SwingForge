@@ -274,7 +274,7 @@ def draw_drill_hud(frame, drill, current_value, swing_num, swing_history,
     # ── FPS + controls ──
     cv2.putText(frame, f"{fps:.0f} FPS", (w - 80, h - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
-    cv2.putText(frame, "Hands up=Pause | Hands down=Next | Left up=Restart | Keys: [1-0] [SPACE] [R] [Q]",
+    cv2.putText(frame, "Hands UP=Pause | Arms WIDE=Resume | Hands DOWN=Next | Left UP=Restart",
                 (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (80, 80, 80), 1)
 
     return frame
@@ -470,16 +470,38 @@ def run_drill_mode(playing_hand='right'):
                     voice_coach.say(f"Switching to {drill['name']}. {drill['instruction']}")
             continue
 
-        # Pause handling
+        # Pause handling — check gestures even while paused
         if paused:
-            cv2.rectangle(frame, (w//2 - 100, h//2 - 30), (w//2 + 100, h//2 + 30), (20, 20, 20), -1)
-            cv2.rectangle(frame, (w//2 - 100, h//2 - 30), (w//2 + 100, h//2 + 30), (204, 255, 0), 2)
-            cv2.putText(frame, "PAUSED", (w//2 - 55, h//2 + 10),
+            # Still extract pose for gesture detection while paused
+            try:
+                pause_kp = pose_engine.extract_keypoints(frame)
+            except Exception:
+                pause_kp = None
+
+            pause_gesture = gesture_detector.update(pause_kp)
+            pause_hint = gesture_detector.get_gesture_hint(pause_kp)
+
+            cv2.rectangle(frame, (w//2 - 140, h//2 - 50), (w//2 + 140, h//2 + 50), (20, 20, 20), -1)
+            cv2.rectangle(frame, (w//2 - 140, h//2 - 50), (w//2 + 140, h//2 + 50), (204, 255, 0), 2)
+            cv2.putText(frame, "PAUSED", (w//2 - 55, h//2 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (204, 255, 0), 2)
+            cv2.putText(frame, "Arms out wide to resume", (w//2 - 120, h//2 + 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 160), 1)
+
+            if pause_hint:
+                cv2.putText(frame, pause_hint, (w//2 - 120, h//2 + 45),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (204, 255, 0), 1)
+
+            if pause_gesture == 'resume':
+                paused = False
+                gesture_detector.is_paused = False
+                voice_coach.say("Resumed.")
+
             cv2.imshow('SwingForge Drill', frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord(' '):
                 paused = False
+                gesture_detector.is_paused = False
                 voice_coach.say("Resumed.")
             elif key == ord('q') or key == 27:
                 break
@@ -532,9 +554,14 @@ def run_drill_mode(playing_hand='right'):
             cv2.putText(frame, gesture_hint, (w // 2 - 150, h // 2),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (204, 255, 0), 2)
 
-        if gesture == 'pause':
-            paused = not paused
-            voice_coach.say("Paused." if paused else "Resumed.")
+        if gesture == 'pause' and not paused:
+            paused = True
+            gesture_detector.is_paused = True
+            voice_coach.say("Paused. Arms out wide to resume.")
+        elif gesture == 'resume' and paused:
+            paused = False
+            gesture_detector.is_paused = False
+            voice_coach.say("Resumed.")
         elif gesture == 'next_drill':
             # Cycle to next drill
             drill_ids = sorted(DRILLS.keys())
