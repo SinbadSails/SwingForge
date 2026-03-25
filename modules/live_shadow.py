@@ -35,11 +35,10 @@ from core.swing_detector import SwingDetector
 PRO_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'pros')
 
 PRO_FILES = [
-    ('Pro FH #1 (IW side)', 'pro_forehand_1.json'),
-    ('Pro FH #2 (AO close)', 'pro_forehand_2.json'),
-    ('Pro FH #3 (IW 100%)', 'pro_forehand_3.json'),
-    ('Sinner FH', 'sinner_forehand.json'),
-    ('Djokovic FH', 'djokovic_forehand.json'),
+    ('Djokovic FH (side)', 'djokovic_forehand.json'),       # 501 frames, 100% pose, curated
+    ('Djokovic BH (side)', 'djokovic_backhand.json'),       # 433 frames, 98% pose, curated
+    ('Djokovic FH (front)', 'djokovic_forehand_front.json'),# 61 frames, 100% pose, curated
+    ('Sinner FH', 'sinner_forehand.json'),                  # 121 frames, 100% pose
 ]
 
 SYNC_JOINTS = ['right_wrist', 'right_elbow', 'right_shoulder', 'right_hip']
