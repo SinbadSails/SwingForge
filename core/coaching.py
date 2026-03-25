@@ -35,14 +35,26 @@ IDEAL_RANGES = {
     },
 }
 
-# Scoring weights
+# Scoring weights — prioritize metrics that are RELIABLE in 2D single-camera
+# Hip rotation and elbow at exact contact frame are unreliable → low weight
+# Shoulder turn, knee bend, racket lag during loading are reliable → high weight
 WEIGHTS = {
-    'elbow_angle': 0.15,
-    'hip_rotation': 0.25,
-    'shoulder_angle': 0.20,
-    'knee_angle': 0.15,
-    'racket_lag': 0.15,
+    'elbow_angle': 0.10,       # unreliable: depends on exact contact frame detection
+    'hip_rotation': 0.10,      # unreliable: 2D projection can't measure rotation well
+    'shoulder_angle': 0.25,    # RELIABLE: peak shoulder turn during loading
+    'knee_angle': 0.20,        # RELIABLE: deepest knee bend during loading
+    'racket_lag': 0.25,        # RELIABLE: forearm angle during backswing
     'follow_through': 0.10,
+}
+
+# Labels for display — honest about what's estimated
+METRIC_LABELS = {
+    'elbow_angle': 'Elbow Extension',
+    'hip_rotation': 'Hip Rotation (est.)',
+    'shoulder_angle': 'Shoulder Turn',
+    'knee_angle': 'Knee Bend',
+    'racket_lag': 'Racket Lag',
+    'follow_through': 'Follow-Through',
 }
 
 # Pro reference data directory

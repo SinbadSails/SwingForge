@@ -397,9 +397,16 @@ def run_shadow_mode(playing_hand='right'):
                 contact_a = swing_result['contact_angles']
                 loading_a = swing_result['loading_angles']
 
+                # Auto-detect stroke type from contact keypoints
+                from core.swing_classifier import SwingClassifier
                 from core.coaching import CoachingEngine
+                sc = SwingClassifier()
+                contact_kp = swing_result.get('contact_keypoints')
+                detected_stroke = sc.classify_stroke(contact_kp) if contact_kp else 'forehand'
+                swing_result['stroke_type'] = detected_stroke
+
                 ce = CoachingEngine()
-                scores = ce.score_swing(contact_a, 'forehand', True, loading_a)
+                scores = ce.score_swing(contact_a, detected_stroke, True, loading_a)
 
                 if scores:
                     swing_result['score'] = scores['overall']
@@ -440,8 +447,9 @@ def run_shadow_mode(playing_hand='right'):
                 # Big score display
                 cv2.rectangle(frame, (w//2 - 150, 40), (w//2 + 150, 110), (20, 20, 20), -1)
                 cv2.rectangle(frame, (w//2 - 150, 40), (w//2 + 150, 110), sc_color, 2)
-                cv2.putText(frame, f"SWING #{last_swing_result['swing_number']}: {score:.0f}/100",
-                            (w//2 - 135, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, sc_color, 2)
+                stroke_label = last_swing_result.get('stroke_type', 'forehand').upper()
+                cv2.putText(frame, f"{stroke_label} #{last_swing_result['swing_number']}: {score:.0f}/100",
+                            (w//2 - 145, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.75, sc_color, 2)
 
                 tip = last_tip
                 phase = 'SCORED'

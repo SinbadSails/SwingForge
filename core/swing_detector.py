@@ -164,6 +164,11 @@ class SwingDetector:
                 if a.get('racket_lag', 0) > best_loading.get('racket_lag', 0):
                     best_loading['racket_lag'] = a['racket_lag']
 
+        # Get contact keypoints for stroke classification
+        contact_keypoints = None
+        if contact_idx < len(self.swing_keypoints) and self.swing_keypoints[contact_idx]:
+            contact_keypoints = self.swing_keypoints[contact_idx]
+
         result = {
             'type': 'swing_complete',
             'frames': self.swing_frame_count,
@@ -171,8 +176,9 @@ class SwingDetector:
             'peak_velocity': round(self.peak_velocity, 1),
             'contact_frame_idx': contact_idx,
             'contact_angles': contact_angles,
+            'contact_keypoints': contact_keypoints,
             'loading_angles': best_loading if best_loading else None,
-            'replay_frames': self.swing_frames[-30:] if self.swing_frames else [],  # last 1s for replay
+            'replay_frames': self.swing_frames[-30:] if self.swing_frames else [],
             'swing_number': len(self.completed_swings) + 1,
         }
 
