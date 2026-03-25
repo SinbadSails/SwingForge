@@ -273,7 +273,7 @@ def draw_drill_hud(frame, drill, current_value, swing_num, swing_history,
     # ── FPS + controls ──
     cv2.putText(frame, f"{fps:.0f} FPS", (w - 80, h - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
-    cv2.putText(frame, "[1-5] Groundstroke  [6-8] Serve  [9-0] Fundamentals  [R]estart  [Q]uit",
+    cv2.putText(frame, "[1-5] Ground  [6-8] Serve  [9-0] Fund  [SPACE] Pause  [R]estart  [Q]uit",
                 (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.33, (80, 80, 80), 1)
 
     return frame
@@ -375,9 +375,10 @@ def run_drill_mode(playing_hand='right'):
     voice_coach = VoiceCoach(enabled=True, rate=170)
     swing_detector = SwingDetector(fps=30)
 
-    # Voice commands — say drill names to switch hands-free
+    # Voice commands — disabled by default (Google API is unreliable)
+    # Press [M] to enable if you want to try them
     from core.voice_commands import VoiceCommands
-    voice_cmds = VoiceCommands(enabled=True)
+    voice_cmds = VoiceCommands(enabled=False)
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -396,6 +397,7 @@ def run_drill_mode(playing_hand='right'):
     feedback_color = (200, 200, 200)
     feedback_time = 0
     show_summary = False
+    paused = False
     live_value = None
     state = 'IDLE'
 
@@ -412,7 +414,7 @@ def run_drill_mode(playing_hand='right'):
     print(f"    [6] Trophy Position  [7] Serve Knee Load  [8] Serve Extension")
     print(f"  FUNDAMENTALS:")
     print(f"    [9] Ready Position  [0] Split Step")
-    print(f"  [R] Restart  [V] Voice  [Q] Quit\n")
+    print(f"  [SPACE] Pause  [R] Restart  [V] Voice  [M] Mic commands  [Q] Quit\n")
 
     voice_coach.say(f"Drill mode. Working on {drill['name']}. {drill['instruction']}")
 
@@ -461,6 +463,32 @@ def run_drill_mode(playing_hand='right'):
                     show_summary = False
                     feedback_text = ""
                     voice_coach.say(f"Switching to {drill['name']}. {drill['instruction']}")
+            continue
+
+        # Pause handling
+        if paused:
+            cv2.rectangle(frame, (w//2 - 100, h//2 - 30), (w//2 + 100, h//2 + 30), (20, 20, 20), -1)
+            cv2.rectangle(frame, (w//2 - 100, h//2 - 30), (w//2 + 100, h//2 + 30), (204, 255, 0), 2)
+            cv2.putText(frame, "PAUSED", (w//2 - 55, h//2 + 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (204, 255, 0), 2)
+            cv2.imshow('SwingForge Drill', frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord(' '):
+                paused = False
+                voice_coach.say("Resumed.")
+            elif key == ord('q') or key == 27:
+                break
+            elif key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
+                new_id = (key - ord('0')) if key != ord('0') else 10
+                if new_id in DRILLS:
+                    current_drill_id = new_id
+                    drill = DRILLS[current_drill_id]
+                    swing_history = []
+                    swing_detector = SwingDetector(fps=30)
+                    show_summary = False
+                    paused = False
+                    feedback_text = ""
+                    voice_coach.say(f"{drill['name']}. {drill['instruction']}")
             continue
 
         try:
@@ -591,6 +619,9 @@ def run_drill_mode(playing_hand='right'):
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q') or key == 27:
             break
+        elif key == ord(' '):
+            paused = True
+            voice_coach.say("Paused.")
         elif key == ord('r'):
             swing_history = []
             swing_detector = SwingDetector(fps=30)
@@ -599,6 +630,15 @@ def run_drill_mode(playing_hand='right'):
         elif key == ord('v'):
             voice_coach.enabled = not voice_coach.enabled
             print(f"  Voice: {'ON' if voice_coach.enabled else 'OFF'}")
+        elif key == ord('m'):
+            voice_cmds_enabled = not voice_cmds.enabled if hasattr(voice_cmds, 'enabled') else False
+            if not voice_cmds_enabled:
+                voice_cmds = VoiceCommands(enabled=True)
+                print("  Voice commands: ON (say drill names)")
+            else:
+                voice_cmds.stop()
+                voice_cmds = VoiceCommands(enabled=False)
+                print("  Voice commands: OFF")
         elif key in [ord(str(i)) for i in range(1, 10)] + [ord('0')]:
             new_id = (key - ord('0')) if key != ord('0') else 10
             if new_id in DRILLS:
