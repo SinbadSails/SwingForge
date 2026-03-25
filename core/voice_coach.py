@@ -13,7 +13,10 @@ class VoiceCoach:
         self.enabled = enabled
         self.msg_queue = queue.Queue()
         self.last_spoken = {}
-        self.cooldown = 3.0  # seconds between same message
+        self.cooldown = 8.0  # 8 seconds between same category (was 3 — too spammy)
+        self.global_cooldown = 4.0  # minimum 4 seconds between ANY speech
+        self.last_any_speech = 0
+        self.last_tip_joint = None  # track what we said last to avoid repeats
         self.rate = rate
 
         if enabled:
@@ -40,16 +43,23 @@ class VoiceCoach:
                 print(f"TTS error: {e}")
 
     def say(self, message, category='general'):
-        """Queue a message to be spoken. Respects cooldown per category."""
+        """Queue a message to be spoken. Respects cooldowns."""
         if not self.enabled:
             return
 
         now = time.time()
+
+        # Global cooldown — don't talk too often
+        if now - self.last_any_speech < self.global_cooldown:
+            return
+
+        # Per-category cooldown
         if category in self.last_spoken:
             if now - self.last_spoken[category] < self.cooldown:
-                return  # skip, too soon
+                return
 
         self.last_spoken[category] = now
+        self.last_any_speech = now
 
         # Clear old messages, only keep latest
         while not self.msg_queue.empty():
@@ -61,40 +71,38 @@ class VoiceCoach:
         self.msg_queue.put(message)
 
     def coach_on_angles(self, sync_scores, overall):
-        """Generate coaching cues based on current sync scores."""
-        if overall > 85:
-            self.say("Perfect form! Keep it up!", 'praise')
-            return
-
-        # Find worst joint
+        """Generate coaching cues. Only speaks if something is genuinely wrong
+        and doesn't repeat the same tip twice in a row."""
         if not sync_scores:
             return
 
+        # Don't coach if overall is decent
+        if overall > 75:
+            return
+
+        # Find worst joint
         worst = min(sync_scores, key=sync_scores.get)
         score = sync_scores[worst]
 
-        if score < 30:
+        # Only speak if it's actually bad (below 40%) and different from last tip
+        if score < 40 and worst != self.last_tip_joint:
+            self.last_tip_joint = worst
             cues = {
-                'right_hip': "Drive your hips! Rotate through the ball!",
-                'right_shoulder': "Turn your shoulders! Full unit turn!",
-                'right_elbow': "Extend that elbow through contact!",
-                'right_wrist': "Check your wrist lag! Let it snap!",
+                'right_hip': "Rotate your hips!",
+                'right_shoulder': "Turn your shoulders more!",
+                'right_elbow': "Extend that elbow!",
+                'right_wrist': "More wrist lag!",
             }
-            self.say(cues.get(worst, "Focus on your form!"), worst)
-
-    def announce_phase(self, phase):
-        """Announce swing phase transitions."""
-        if phase == 'contact':
-            self.say("Contact!", 'phase')
+            self.say(cues.get(worst, "Focus on form!"), worst)
 
     def announce_score(self, score):
-        """Announce overall sync score after a swing."""
+        """Announce score after a detected swing."""
         if score > 85:
-            self.say(f"Great swing! {int(score)} percent sync!", 'score')
+            self.say(f"{int(score)} percent! Great swing!", 'score')
         elif score > 60:
-            self.say(f"{int(score)} percent. Getting closer!", 'score')
+            self.say(f"{int(score)} percent.", 'score')
         else:
-            self.say(f"{int(score)} percent. Keep working!", 'score')
+            self.say(f"{int(score)} percent. Keep working.", 'score')
 
     def stop(self):
         if self.enabled:

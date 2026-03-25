@@ -342,11 +342,15 @@ def run_shadow_mode(playing_hand='right'):
                 if len(wrist_history) > 30:
                     wrist_history = wrist_history[-30:]
 
-            # Advance ghost skeleton
+            # Advance ghost skeleton — skip null frames automatically
             if ghost_on and total_ghost_frames > 0:
                 ghost_interval = (1.0 / 30) / (ghost_speed_pct / 100.0)
                 if now - ghost_timer > ghost_interval:
-                    ghost_frame_idx = (ghost_frame_idx + 1) % total_ghost_frames
+                    # Advance, but skip any null frames (up to 10 skips)
+                    for _skip in range(10):
+                        ghost_frame_idx = (ghost_frame_idx + 1) % total_ghost_frames
+                        if pro_sequence[ghost_frame_idx] is not None:
+                            break
                     ghost_timer = now
 
             # Get current ghost keypoints
@@ -419,7 +423,7 @@ def run_shadow_mode(playing_hand='right'):
                     voice_coach.announce_score(overall)
 
             # Voice coaching (periodic)
-            if voice_on and user_kp and total_loop_frames % 45 == 0:
+            if voice_on and user_kp and total_loop_frames % 120 == 0:
                 voice_coach.coach_on_angles(sync_scores, overall)
 
             # Coaching tip
