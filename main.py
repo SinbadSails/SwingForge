@@ -20,6 +20,8 @@ def main():
     parser = argparse.ArgumentParser(description="SwingForge AI — Tennis Swing Analysis")
     parser.add_argument('--live', action='store_true',
                         help='Launch live shadow swing mode (OpenCV webcam)')
+    parser.add_argument('--drill', action='store_true',
+                        help='Launch focused drill mode (one metric at a time)')
     parser.add_argument('--analyze', type=str, default=None,
                         help='Analyze a video file from CLI')
     parser.add_argument('--hand', type=str, default='right', choices=['right', 'left'],
@@ -28,7 +30,11 @@ def main():
                         help='Gradio server port (default: 7860)')
     args = parser.parse_args()
 
-    if args.live:
+    if args.drill:
+        from modules.drill_mode import run_drill_mode
+        run_drill_mode(playing_hand=args.hand)
+
+    elif args.live:
         from modules.live_shadow import run_shadow_mode
         run_shadow_mode(playing_hand=args.hand)
 
