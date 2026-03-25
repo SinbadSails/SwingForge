@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from core.pose_engine import PoseEngine, SKELETON_CONNECTIONS
 from core.voice_coach import VoiceCoach
+from core.swing_detector import SwingDetector
 
 PRO_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'pros')
 
@@ -273,14 +274,16 @@ def run_shadow_mode(playing_hand='right'):
     ghost_frame_idx = 0
     ghost_timer = time.time()
 
+    swing_detector = SwingDetector(fps=30)
     session_scores = []
     swing_scores = []
     swing_count = 0
-    wrist_history = []
     frame_count = 0
     fps = 0
     fps_timer = time.time()
     last_swing_time = 0
+    last_swing_result = None
+    last_tip = 'Swing to get scored!'
 
     # Load pro data
     pro_name, pro_file = PRO_FILES[pro_idx]
@@ -338,41 +341,27 @@ def run_shadow_mode(playing_hand='right'):
         except Exception:
             user_kp = None
 
-        # ── Rendering (wrapped in try/except so one bad frame doesn't crash) ──
+        # ── Main rendering loop ──
         current_ghost_kp = None
-        sync_scores = {j: 0.0 for j in SYNC_JOINTS}
-        overall = 0
-        angles = None
+        angles = pose_engine.get_joint_angles(user_kp, side=playing_hand) if user_kp else None
         phase = 'ready'
         tip = 'Swing to get scored!'
-        is_swinging = False  # only score when actually moving
 
         try:
-            # Track wrist velocity for swing detection
-            if user_kp and 'right_wrist' in user_kp:
-                wrist_history.append(user_kp['right_wrist'][1])
-                if len(wrist_history) > 30:
-                    wrist_history = wrist_history[-30:]
-
-            # Advance ghost skeleton — skip null frames automatically
+            # Advance ghost skeleton — skip null frames
             if ghost_on and total_ghost_frames > 0:
                 ghost_interval = (1.0 / 30) / (ghost_speed_pct / 100.0)
                 if now - ghost_timer > ghost_interval:
-                    # Advance, but skip any null frames (up to 10 skips)
                     for _skip in range(10):
                         ghost_frame_idx = (ghost_frame_idx + 1) % total_ghost_frames
                         if pro_sequence[ghost_frame_idx] is not None:
                             break
                     ghost_timer = now
 
-            # Get current ghost keypoints
-            current_ghost_raw_kp = None
             if total_ghost_frames > 0 and ghost_frame_idx < total_ghost_frames:
                 current_ghost_kp = pro_sequence[ghost_frame_idx]
-                if ghost_frame_idx < len(pro_raw_sequence):
-                    current_ghost_raw_kp = pro_raw_sequence[ghost_frame_idx]
 
-            # Draw ghost skeleton as mini reference in bottom-left corner
+            # Draw ghost mini reference (bottom-left)
             if ghost_on and current_ghost_kp:
                 frame = draw_ghost_mini(frame, current_ghost_kp,
                                          box_x=10, box_y=h - 210, box_size=200)
@@ -392,63 +381,78 @@ def run_shadow_mode(playing_hand='right'):
                     if vis > 0.5:
                         cv2.circle(frame, (int(kp[0]), int(kp[1])), 5, (0, 255, 255), -1)
 
-            # Detect if user is actually swinging (wrist moving fast enough)
-            if len(wrist_history) >= 3:
-                recent_deltas = [abs(wrist_history[i] - wrist_history[i-1])
-                                 for i in range(-1, -min(4, len(wrist_history)), -1)]
-                is_swinging = np.mean(recent_deltas) > 8  # pixels of wrist movement per frame
+            # ── Swing detection (state machine) ──
+            wrist_pos = user_kp['right_wrist'][:2] if user_kp and 'right_wrist' in user_kp else None
+            swing_result = swing_detector.update(wrist_pos, frame, user_kp, angles)
 
-            # Only calculate sync score when user is actively swinging
-            if is_swinging:
-                if current_ghost_raw_kp:
-                    sync_scores = calculate_sync_score(user_kp, current_ghost_raw_kp, pose_engine, playing_hand)
-                elif user_kp:
-                    user_angles = pose_engine.get_joint_angles(user_kp, side=playing_hand)
-                    if user_angles:
-                        for joint, akey in {'right_wrist': 'racket_lag', 'right_elbow': 'elbow_angle',
-                                             'right_shoulder': 'shoulder_angle', 'right_hip': 'hip_rotation'}.items():
-                            if akey in user_angles and akey in pro_angles:
-                                diff = abs(user_angles[akey] - pro_angles[akey])
-                                sync_scores[joint] = max(0, 100 - (diff / 60) * 100)
-                overall = np.mean(list(sync_scores.values())) if sync_scores else 0
-                tip = min(sync_scores, key=sync_scores.get) if sync_scores else ''
-                tip_map = {'right_hip': 'Drive hips forward!', 'right_shoulder': 'Turn shoulders!',
-                           'right_elbow': 'Extend elbow!', 'right_wrist': 'Check wrist lag!'}
-                tip = tip_map.get(tip, 'Keep swinging!')
-            else:
-                # Idle — show 0 and prompt to swing
-                sync_scores = {j: 0.0 for j in SYNC_JOINTS}
-                overall = 0
+            if swing_detector.is_swinging:
+                phase = 'SWINGING'
+                tip = 'Keep going!'
+                # Show live "swinging" indicator
+                cv2.putText(frame, "SWING DETECTED", (w // 2 - 120, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+            elif isinstance(swing_result, dict) and swing_result.get('type') == 'swing_complete':
+                # A swing just completed — score it!
+                contact_a = swing_result['contact_angles']
+                loading_a = swing_result['loading_angles']
+
+                from core.coaching import CoachingEngine
+                ce = CoachingEngine()
+                scores = ce.score_swing(contact_a, 'forehand', True, loading_a)
+
+                if scores:
+                    swing_result['score'] = scores['overall']
+                    swing_result['scores_detail'] = scores
+
+                    # Show score prominently
+                    last_swing_result = swing_result
+                    last_swing_time = now
+
+                    swing_scores.append(scores['overall'])
+                    swing_count = swing_detector.swing_count
+
+                    if voice_on:
+                        voice_coach.announce_score(scores['overall'])
+
+                    # Find worst metric for tip
+                    worst = min(
+                        [(k, v) for k, v in scores.items() if k != 'overall' and k != 'follow_through'],
+                        key=lambda x: x[1], default=('', 100)
+                    )
+                    if worst[1] < 70:
+                        tip_map = {
+                            'hip_rotation': 'Rotate your hips more!',
+                            'shoulder_angle': 'Turn your shoulders!',
+                            'elbow_angle': 'Extend through contact!',
+                            'racket_lag': 'More racket lag on backswing!',
+                            'knee_angle': 'Bend your knees!',
+                        }
+                        last_tip = tip_map.get(worst[0], 'Keep working!')
+                    else:
+                        last_tip = 'Good swing!'
+
+            # Show last swing result for 3 seconds after it completes
+            if last_swing_result and (now - last_swing_time) < 3.0:
+                score = last_swing_result.get('score', 0)
+                sc_color = (0, 255, 0) if score > 75 else (0, 255, 255) if score > 50 else (0, 0, 255)
+
+                # Big score display
+                cv2.rectangle(frame, (w//2 - 150, 40), (w//2 + 150, 110), (20, 20, 20), -1)
+                cv2.rectangle(frame, (w//2 - 150, 40), (w//2 + 150, 110), sc_color, 2)
+                cv2.putText(frame, f"SWING #{last_swing_result['swing_number']}: {score:.0f}/100",
+                            (w//2 - 135, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, sc_color, 2)
+
+                tip = last_tip
+                phase = 'SCORED'
+            elif not swing_detector.is_swinging:
+                phase = 'READY'
                 tip = 'Swing to get scored!'
-            angles = pose_engine.get_joint_angles(user_kp, side=playing_hand) if user_kp else None
-
-            # Phase detection
-            if user_kp:
-                wy = user_kp['right_wrist'][1]
-                hy = user_kp['right_hip'][1]
-                sy = user_kp['right_shoulder'][1]
-                if wy < sy:
-                    phase = 'load'
-                elif wy < hy:
-                    phase = 'contact'
-                else:
-                    phase = 'follow'
-
-            # Swing detection
-            if detect_swing(wrist_history) and (now - last_swing_time) > 2.0:
-                swing_count += 1
-                swing_scores.append(overall)
-                last_swing_time = now
-                if voice_on:
-                    voice_coach.announce_score(overall)
-
-            # Voice coaching (periodic)
-            if voice_on and user_kp and total_loop_frames % 120 == 0:
-                voice_coach.coach_on_angles(sync_scores, overall)
-
-            # (tip already set above based on swing state)
 
             # Draw HUD
+            sync_scores = last_swing_result.get('scores_detail', {j: 0.0 for j in SYNC_JOINTS}) if last_swing_result and (now - last_swing_time) < 3.0 else {j: 0.0 for j in SYNC_JOINTS}
+            overall = last_swing_result.get('score', 0) if last_swing_result and (now - last_swing_time) < 3.0 else 0
+
             if show_hud:
                 frame = draw_hud(frame, pro_name, phase, sync_scores, overall,
                                  tip, fps, angles, pro_angles,
@@ -519,16 +523,19 @@ def run_shadow_mode(playing_hand='right'):
 
     # Session summary
     voice_coach.stop()
-    if session_scores:
-        avg = np.mean(session_scores)
-        print(f"\n  ── Session Summary ──")
-        print(f"  Total frames: {len(session_scores)}")
-        print(f"  Swings detected: {swing_count}")
-        if swing_scores:
-            print(f"  Swing scores: {', '.join(f'{s:.0f}' for s in swing_scores)}")
-            print(f"  Average swing score: {np.mean(swing_scores):.1f}/100")
-            print(f"  Best swing: {max(swing_scores):.0f}/100")
-        print(f"  Overall avg sync: {avg:.1f}/100")
+    print(f"\n  ── Session Summary ──")
+    print(f"  Swings detected: {swing_detector.swing_count}")
+    if swing_scores:
+        print(f"  Swing scores: {', '.join(f'{s:.0f}' for s in swing_scores)}")
+        print(f"  Average: {np.mean(swing_scores):.1f}/100")
+        print(f"  Best: {max(swing_scores):.0f}/100")
+        if len(swing_scores) > 2:
+            first_half = np.mean(swing_scores[:len(swing_scores)//2])
+            second_half = np.mean(swing_scores[len(swing_scores)//2:])
+            trend = second_half - first_half
+            print(f"  Trend: {'improving' if trend > 0 else 'declining'} ({trend:+.1f})")
+    else:
+        print(f"  No swings scored. Swing harder!")
 
     cap.release()
     cv2.destroyAllWindows()
