@@ -68,21 +68,29 @@ class SwingDetector:
 
         self.wrist_history.append(wrist_pos)
 
-        # Track hip movement to filter walking vs swinging
-        # If hips are moving fast, the whole body is moving (walking) — not a swing
+        # Walking filter: distinguish walking (whole body moves together)
+        # from swinging (arm moves WAY faster than hips).
+        # During a real swing, hips DO move (rotation, weight transfer) —
+        # but the wrist moves 3-5x faster than the hips.
+        # During walking, wrist and hips move at similar speeds.
         if hip_pos is not None:
             if not hasattr(self, '_hip_history'):
                 self._hip_history = deque(maxlen=15)
             self._hip_history.append(hip_pos)
-            if len(self._hip_history) >= 2:
+            if len(self._hip_history) >= 2 and len(self.wrist_history) >= 2:
                 hip_vel = np.linalg.norm(
                     np.array(self._hip_history[-1]) - np.array(self._hip_history[-2])
                 )
-                # If hips moving more than 40% as fast as wrist → walking, not swinging
-                hip_threshold = self.torso_length * 0.03
-                if hip_vel > hip_threshold:
-                    # Body is moving — don't count as swing
-                    if self.state == 'IDLE':
+                wrist_vel = np.linalg.norm(
+                    np.array(self.wrist_history[-1]) - np.array(self.wrist_history[-2])
+                )
+                # Walking = wrist and hips move at similar speed (ratio < 2)
+                # Swinging = wrist moves much faster than hips (ratio > 3)
+                # Only filter if hips are actually moving AND wrist isn't much faster
+                if hip_vel > self.torso_length * 0.02 and self.state == 'IDLE':
+                    ratio = wrist_vel / (hip_vel + 1e-8)
+                    if ratio < 2.5:
+                        # Wrist not much faster than hips — likely walking
                         return 'IDLE'
 
         # Calculate velocity
