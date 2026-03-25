@@ -292,12 +292,24 @@ def run_shadow_mode(playing_hand='right'):
     cv2.namedWindow('SwingForge', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('SwingForge', 1280, 720)
 
+    dropped_frames = 0
+    total_loop_frames = 0
+
     while True:
         ret, frame = cap.read()
         if not ret:
-            break
+            dropped_frames += 1
+            if dropped_frames > 30:
+                print(f"  Camera lost — {dropped_frames} consecutive failed reads. Exiting.")
+                break
+            continue
+        dropped_frames = 0  # reset on successful read
+        total_loop_frames += 1
 
-        frame = cv2.flip(frame, 1)
+        try:
+            frame = cv2.flip(frame, 1)
+        except Exception:
+            continue
         h, w = frame.shape[:2]
         frame_count += 1
 
@@ -308,141 +320,135 @@ def run_shadow_mode(playing_hand='right'):
             frame_count = 0
             fps_timer = now
 
-        # Extract user pose
-        user_kp = pose_engine.extract_keypoints(frame)
+        # ── All rendering wrapped in try/except ──
+        try:
+            # Extract user pose
+            user_kp = pose_engine.extract_keypoints(frame)
+        except Exception:
+            user_kp = None
 
-        # Track wrist velocity for swing detection
-        if user_kp and 'right_wrist' in user_kp:
-            wrist_history.append(user_kp['right_wrist'][1])  # y position
-            if len(wrist_history) > 30:
-                wrist_history = wrist_history[-30:]
-
-        # Advance ghost skeleton
-        if ghost_on and total_ghost_frames > 0:
-            ghost_interval = (1.0 / 30) / (ghost_speed_pct / 100.0)  # frame delay
-            if now - ghost_timer > ghost_interval:
-                ghost_frame_idx = (ghost_frame_idx + 1) % total_ghost_frames
-                ghost_timer = now
-
-        # Get current ghost keypoints
+        # ── Rendering (wrapped in try/except so one bad frame doesn't crash) ──
         current_ghost_kp = None
-        current_ghost_raw_kp = None
-        if total_ghost_frames > 0 and ghost_frame_idx < total_ghost_frames:
-            current_ghost_kp = pro_sequence[ghost_frame_idx]
-            if ghost_frame_idx < len(pro_raw_sequence):
-                current_ghost_raw_kp = pro_raw_sequence[ghost_frame_idx]
+        sync_scores = {j: 0.0 for j in SYNC_JOINTS}
+        overall = 0
+        angles = None
+        phase = 'ready'
+        tip = 'Step into frame!'
 
-        # Draw ghost skeleton
-        if ghost_on and current_ghost_kp and user_kp:
-            # Scale ghost relative to user's torso
-            user_hip_x = (user_kp['left_hip'][0] + user_kp['right_hip'][0]) / 2
-            user_hip_y = (user_kp['left_hip'][1] + user_kp['right_hip'][1]) / 2
-            user_shoulder_y = (user_kp['left_shoulder'][1] + user_kp['right_shoulder'][1]) / 2
-            user_torso = abs(user_hip_y - user_shoulder_y)
+        try:
+            # Track wrist velocity for swing detection
+            if user_kp and 'right_wrist' in user_kp:
+                wrist_history.append(user_kp['right_wrist'][1])
+                if len(wrist_history) > 30:
+                    wrist_history = wrist_history[-30:]
 
-            if user_torso > 10:
-                frame = draw_ghost_skeleton(
-                    frame, current_ghost_kp,
-                    hip_center=(int(user_hip_x), int(user_hip_y)),
-                    scale=user_torso,
-                    alpha=0.5
-                )
+            # Advance ghost skeleton
+            if ghost_on and total_ghost_frames > 0:
+                ghost_interval = (1.0 / 30) / (ghost_speed_pct / 100.0)
+                if now - ghost_timer > ghost_interval:
+                    ghost_frame_idx = (ghost_frame_idx + 1) % total_ghost_frames
+                    ghost_timer = now
 
-        # Draw user skeleton (green)
-        if user_kp:
-            for start, end in SKELETON_CONNECTIONS:
-                if start in user_kp and end in user_kp:
-                    p1 = (int(user_kp[start][0]), int(user_kp[start][1]))
-                    p2 = (int(user_kp[end][0]), int(user_kp[end][1]))
-                    vis1 = user_kp[start][3] if len(user_kp[start]) > 3 else 1.0
-                    vis2 = user_kp[end][3] if len(user_kp[end]) > 3 else 1.0
-                    if vis1 > 0.5 and vis2 > 0.5:
-                        cv2.line(frame, p1, p2, (0, 255, 127), 3)
-            for name, kp in user_kp.items():
-                vis = kp[3] if len(kp) > 3 else 1.0
-                if vis > 0.5:
-                    cv2.circle(frame, (int(kp[0]), int(kp[1])), 5, (0, 255, 255), -1)
+            # Get current ghost keypoints
+            current_ghost_raw_kp = None
+            if total_ghost_frames > 0 and ghost_frame_idx < total_ghost_frames:
+                current_ghost_kp = pro_sequence[ghost_frame_idx]
+                if ghost_frame_idx < len(pro_raw_sequence):
+                    current_ghost_raw_kp = pro_raw_sequence[ghost_frame_idx]
 
-        # Calculate sync score (phase-matched if we have sequence)
-        if current_ghost_raw_kp:
-            sync_scores = calculate_sync_score(user_kp, current_ghost_raw_kp, pose_engine, playing_hand)
-        else:
-            # Fallback to static contact angles
-            sync_scores = {}
+            # Draw ghost skeleton
+            if ghost_on and current_ghost_kp and user_kp:
+                user_hip_x = (user_kp['left_hip'][0] + user_kp['right_hip'][0]) / 2
+                user_hip_y = (user_kp['left_hip'][1] + user_kp['right_hip'][1]) / 2
+                user_shoulder_y = (user_kp['left_shoulder'][1] + user_kp['right_shoulder'][1]) / 2
+                user_torso = abs(user_hip_y - user_shoulder_y)
+                if user_torso > 10:
+                    frame = draw_ghost_skeleton(
+                        frame, current_ghost_kp,
+                        hip_center=(int(user_hip_x), int(user_hip_y)),
+                        scale=user_torso, alpha=0.5)
+
+            # Draw user skeleton (green)
             if user_kp:
+                for start, end in SKELETON_CONNECTIONS:
+                    if start in user_kp and end in user_kp:
+                        p1 = (int(user_kp[start][0]), int(user_kp[start][1]))
+                        p2 = (int(user_kp[end][0]), int(user_kp[end][1]))
+                        vis1 = user_kp[start][3] if len(user_kp[start]) > 3 else 1.0
+                        vis2 = user_kp[end][3] if len(user_kp[end]) > 3 else 1.0
+                        if vis1 > 0.5 and vis2 > 0.5:
+                            cv2.line(frame, p1, p2, (0, 255, 127), 3)
+                for name, kp in user_kp.items():
+                    vis = kp[3] if len(kp) > 3 else 1.0
+                    if vis > 0.5:
+                        cv2.circle(frame, (int(kp[0]), int(kp[1])), 5, (0, 255, 255), -1)
+
+            # Calculate sync score
+            if current_ghost_raw_kp:
+                sync_scores = calculate_sync_score(user_kp, current_ghost_raw_kp, pose_engine, playing_hand)
+            elif user_kp:
                 user_angles = pose_engine.get_joint_angles(user_kp, side=playing_hand)
                 if user_angles:
-                    angle_map = {
-                        'right_wrist': 'racket_lag', 'right_elbow': 'elbow_angle',
-                        'right_shoulder': 'shoulder_angle', 'right_hip': 'hip_rotation',
-                    }
-                    for joint, akey in angle_map.items():
+                    for joint, akey in {'right_wrist': 'racket_lag', 'right_elbow': 'elbow_angle',
+                                         'right_shoulder': 'shoulder_angle', 'right_hip': 'hip_rotation'}.items():
                         if akey in user_angles and akey in pro_angles:
                             diff = abs(user_angles[akey] - pro_angles[akey])
                             sync_scores[joint] = max(0, 100 - (diff / 60) * 100)
-                        else:
-                            sync_scores[joint] = 50.0
+
+            overall = np.mean(list(sync_scores.values())) if sync_scores else 0
+            angles = pose_engine.get_joint_angles(user_kp, side=playing_hand) if user_kp else None
+
+            # Phase detection
+            if user_kp:
+                wy = user_kp['right_wrist'][1]
+                hy = user_kp['right_hip'][1]
+                sy = user_kp['right_shoulder'][1]
+                if wy < sy:
+                    phase = 'load'
+                elif wy < hy:
+                    phase = 'contact'
                 else:
-                    sync_scores = {j: 0.0 for j in SYNC_JOINTS}
-            else:
-                sync_scores = {j: 0.0 for j in SYNC_JOINTS}
+                    phase = 'follow'
 
-        overall = np.mean(list(sync_scores.values())) if sync_scores else 0
+            # Swing detection
+            if detect_swing(wrist_history) and (now - last_swing_time) > 2.0:
+                swing_count += 1
+                swing_scores.append(overall)
+                last_swing_time = now
+                if voice_on:
+                    voice_coach.announce_score(overall)
 
-        # Angles
-        angles = pose_engine.get_joint_angles(user_kp, side=playing_hand) if user_kp else None
+            # Voice coaching (periodic)
+            if voice_on and user_kp and total_loop_frames % 45 == 0:
+                voice_coach.coach_on_angles(sync_scores, overall)
 
-        # Phase detection
-        phase = 'ready'
-        if user_kp:
-            wy = user_kp['right_wrist'][1]
-            hy = user_kp['right_hip'][1]
-            sy = user_kp['right_shoulder'][1]
-            if wy < sy:
-                phase = 'load'
-            elif wy < hy:
-                phase = 'contact'
-            else:
-                phase = 'follow'
+            # Coaching tip
+            worst = min(sync_scores, key=sync_scores.get) if sync_scores else ''
+            tips = {'right_hip': 'Drive hips forward!', 'right_shoulder': 'Turn shoulders!',
+                    'right_elbow': 'Extend elbow!', 'right_wrist': 'Check wrist lag!'}
+            tip = tips.get(worst, 'Keep swinging!')
 
-        # Swing detection
-        if detect_swing(wrist_history) and (now - last_swing_time) > 2.0:
-            swing_count += 1
-            swing_scores.append(overall)
-            last_swing_time = now
-            if voice_on:
-                voice_coach.announce_score(overall)
+            # Draw HUD
+            if show_hud:
+                frame = draw_hud(frame, pro_name, phase, sync_scores, overall,
+                                 tip, fps, angles, pro_angles,
+                                 ghost_frame_idx, total_ghost_frames, ghost_speed_pct,
+                                 swing_count, swing_scores, voice_on, ghost_on)
 
-        # Voice coaching (periodic)
-        if voice_on and user_kp and frame_count % 45 == 0:
-            voice_coach.coach_on_angles(sync_scores, overall)
+            # Recording
+            if recording:
+                cv2.circle(frame, (30, 30), 12, (0, 0, 255), -1)
+                cv2.putText(frame, "REC", (48, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                if recorder:
+                    recorder.write(frame)
 
-        # Coaching tip
-        worst = min(sync_scores, key=sync_scores.get) if sync_scores else ''
-        tips = {
-            'right_hip': 'Drive hips forward!',
-            'right_shoulder': 'Turn shoulders!',
-            'right_elbow': 'Extend elbow!',
-            'right_wrist': 'Check wrist lag!',
-        }
-        tip = tips.get(worst, 'Keep swinging!')
+            if user_kp:
+                session_scores.append(overall)
 
-        # Draw HUD
-        if show_hud:
-            frame = draw_hud(frame, pro_name, phase, sync_scores, overall,
-                             tip, fps, angles, pro_angles,
-                             ghost_frame_idx, total_ghost_frames, ghost_speed_pct,
-                             swing_count, swing_scores, voice_on, ghost_on)
-
-        # Recording
-        if recording:
-            cv2.circle(frame, (30, 30), 12, (0, 0, 255), -1)
-            cv2.putText(frame, "REC", (48, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            if recorder:
-                recorder.write(frame)
-
-        if user_kp:
-            session_scores.append(overall)
+        except Exception as e:
+            if total_loop_frames < 5:
+                print(f"  Render error (frame {total_loop_frames}): {type(e).__name__}: {e}")
+                import traceback; traceback.print_exc()
 
         cv2.imshow('SwingForge', frame)
 
