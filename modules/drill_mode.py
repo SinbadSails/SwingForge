@@ -377,9 +377,9 @@ def run_drill_mode(playing_hand='right'):
     swing_detector = SwingDetector(fps=30)
     gesture_detector = GestureDetector()
 
-    # Voice commands — disabled by default (Google API is unreliable)
+    # Voice commands — Vosk offline recognition (no internet needed)
     from core.voice_commands import VoiceCommands
-    voice_cmds = VoiceCommands(enabled=False)
+    voice_cmds = VoiceCommands(enabled=True)
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -559,12 +559,26 @@ def run_drill_mode(playing_hand='right'):
         vcmd = voice_cmds.get_command()
         if vcmd == 'quit':
             break
+        elif vcmd == 'pause':
+            paused = not paused
+            voice_coach.say("Paused." if paused else "Resumed.")
         elif vcmd == 'restart':
             swing_history = []
             swing_detector = SwingDetector(fps=30)
             feedback_text = ""
             show_summary = False
             voice_coach.say(f"Restarting {drill['name']}.")
+        elif vcmd == 'next_drill':
+            drill_ids = sorted(DRILLS.keys())
+            idx = drill_ids.index(current_drill_id) if current_drill_id in drill_ids else 0
+            current_drill_id = drill_ids[(idx + 1) % len(drill_ids)]
+            drill = DRILLS[current_drill_id]
+            swing_history = []
+            swing_detector = SwingDetector(fps=30)
+            show_summary = False
+            feedback_text = ""
+            voice_coach.say(f"{drill['name']}. {drill['instruction']}")
+            print(f"  Voice → Next: {drill['name']}")
         elif isinstance(vcmd, int) and vcmd in DRILLS:
             current_drill_id = vcmd
             drill = DRILLS[current_drill_id]
