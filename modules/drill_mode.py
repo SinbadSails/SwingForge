@@ -375,6 +375,10 @@ def run_drill_mode(playing_hand='right'):
     voice_coach = VoiceCoach(enabled=True, rate=170)
     swing_detector = SwingDetector(fps=30)
 
+    # Voice commands — say drill names to switch hands-free
+    from core.voice_commands import VoiceCommands
+    voice_cmds = VoiceCommands(enabled=True)
+
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Could not open webcam.")
@@ -486,16 +490,39 @@ def run_drill_mode(playing_hand='right'):
         if angles and drill['metric'] in angles:
             live_value = angles[drill['metric']]
 
-        # Swing detection
+        # Check voice commands (hands-free drill switching)
+        vcmd = voice_cmds.get_command()
+        if vcmd == 'quit':
+            break
+        elif vcmd == 'restart':
+            swing_history = []
+            swing_detector = SwingDetector(fps=30)
+            feedback_text = ""
+            show_summary = False
+            voice_coach.say(f"Restarting {drill['name']}.")
+        elif isinstance(vcmd, int) and vcmd in DRILLS:
+            current_drill_id = vcmd
+            drill = DRILLS[current_drill_id]
+            swing_history = []
+            swing_detector = SwingDetector(fps=30)
+            show_summary = False
+            feedback_text = ""
+            voice_coach.say(f"{drill['name']}. {drill['instruction']}")
+            print(f"  Voice → Drill: {drill['name']}")
+
+        # Swing detection (with walking filter via hip_pos)
         wrist_pos = user_kp['right_wrist'][:2] if user_kp and 'right_wrist' in user_kp else None
         torso_len = None
+        hip_pos = None
         if user_kp:
             hy = (user_kp['left_hip'][1] + user_kp['right_hip'][1]) / 2
+            hx = (user_kp['left_hip'][0] + user_kp['right_hip'][0]) / 2
             sy = (user_kp['left_shoulder'][1] + user_kp['right_shoulder'][1]) / 2
             torso_len = abs(hy - sy)
+            hip_pos = (hx, hy)
 
         swing_result = swing_detector.update(wrist_pos, frame, user_kp, angles,
-                                              torso_length=torso_len)
+                                              torso_length=torso_len, hip_pos=hip_pos)
 
         if swing_detector.is_swinging:
             state = 'SWINGING'

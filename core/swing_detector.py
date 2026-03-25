@@ -53,9 +53,10 @@ class SwingDetector:
         self.peak_velocity = 0
 
     def update(self, wrist_pos, frame=None, keypoints=None, angles=None,
-               torso_length=None):
+               torso_length=None, hip_pos=None):
         """Call every frame with current wrist (x, y) position.
         torso_length: shoulder-to-hip distance in pixels (for distance-adaptive thresholds)
+        hip_pos: (x, y) of hip midpoint — used to filter out walking (whole body moving)
         Returns: 'IDLE', 'SWINGING', or a swing_result dict when a swing completes.
         """
         if wrist_pos is None:
@@ -66,6 +67,23 @@ class SwingDetector:
             self.torso_length = torso_length
 
         self.wrist_history.append(wrist_pos)
+
+        # Track hip movement to filter walking vs swinging
+        # If hips are moving fast, the whole body is moving (walking) — not a swing
+        if hip_pos is not None:
+            if not hasattr(self, '_hip_history'):
+                self._hip_history = deque(maxlen=15)
+            self._hip_history.append(hip_pos)
+            if len(self._hip_history) >= 2:
+                hip_vel = np.linalg.norm(
+                    np.array(self._hip_history[-1]) - np.array(self._hip_history[-2])
+                )
+                # If hips moving more than 40% as fast as wrist → walking, not swinging
+                hip_threshold = self.torso_length * 0.03
+                if hip_vel > hip_threshold:
+                    # Body is moving — don't count as swing
+                    if self.state == 'IDLE':
+                        return 'IDLE'
 
         # Calculate velocity
         if len(self.wrist_history) >= 2:
