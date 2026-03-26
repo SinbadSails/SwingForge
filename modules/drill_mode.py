@@ -221,15 +221,46 @@ def draw_drill_hud(frame, drill, current_value, swing_num, swing_history,
         cv2.putText(frame, "---", (px + 60, py + 75),
                     cv2.FONT_HERSHEY_SIMPLEX, 2.0, (100, 100, 100), 3)
 
-    # Target zone
+    # Target zone visual gauge
     low, high = drill['target']
-    cv2.putText(frame, f"Target: {low}-{high}{drill['unit']}", (px + 15, py + 110),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 160), 1)
+    cv2.putText(frame, f"Target: {low}-{high}{drill['unit']}", (px + 15, py + 105),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 160), 1)
+
+    # Visual gauge bar showing target zone + current position
+    gauge_y = py + 115
+    gauge_w = panel_w - 30
+    gauge_x = px + 15
+    gauge_h = 16
+
+    # Determine gauge range
+    if drill['unit'] == '°':
+        g_min, g_max = max(0, low - 40), min(180, high + 40)
+    else:
+        g_min, g_max = max(0, low - 0.5), high + 0.5
+
+    # Draw gauge background
+    cv2.rectangle(frame, (gauge_x, gauge_y), (gauge_x + gauge_w, gauge_y + gauge_h),
+                  (50, 50, 50), -1)
+
+    # Draw target zone (green band)
+    t_start = int((low - g_min) / (g_max - g_min) * gauge_w)
+    t_end = int((high - g_min) / (g_max - g_min) * gauge_w)
+    cv2.rectangle(frame, (gauge_x + t_start, gauge_y),
+                  (gauge_x + t_end, gauge_y + gauge_h), (0, 100, 0), -1)
+
+    # Draw current value marker (if available)
+    if current_value is not None and state != 'IDLE':
+        marker_pos = int((current_value - g_min) / (g_max - g_min + 1e-8) * gauge_w)
+        marker_pos = max(0, min(gauge_w, marker_pos))
+        in_zone = low <= current_value <= high
+        marker_color = (0, 255, 0) if in_zone else (0, 0, 255)
+        cv2.line(frame, (gauge_x + marker_pos, gauge_y - 3),
+                 (gauge_x + marker_pos, gauge_y + gauge_h + 3), marker_color, 3)
 
     # State indicator
     state_text = {'IDLE': 'Swing!', 'SWINGING': 'SWINGING...', 'SCORED': ''}
-    cv2.putText(frame, state_text.get(state, ''), (px + 15, py + 145),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (204, 255, 0), 1)
+    cv2.putText(frame, state_text.get(state, ''), (px + 15, py + 150),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (204, 255, 0), 1)
 
     # ── Progress bar (bottom) ──
     bar_y = h - 80
@@ -477,7 +508,10 @@ def run_drill_mode(playing_hand='right'):
         if vcmd == 'pause' or key == ord(' '):
             if screen == 'DRILL':
                 screen = 'PAUSED'
-                gesture_detector.is_paused = True
+                # Clear any queued speech so it stops talking
+                while not voice_coach.msg_queue.empty():
+                    try: voice_coach.msg_queue.get_nowait()
+                    except: break
                 voice_coach.say("Paused.")
             elif screen == 'PAUSED':
                 screen = 'DRILL'
@@ -542,12 +576,16 @@ def run_drill_mode(playing_hand='right'):
 
         # ── PAUSED SCREEN ──
         if screen == 'PAUSED':
-            cv2.rectangle(frame, (w//2 - 160, h//2 - 40), (w//2 + 160, h//2 + 40), (20, 20, 20), -1)
-            cv2.rectangle(frame, (w//2 - 160, h//2 - 40), (w//2 + 160, h//2 + 40), (204, 255, 0), 2)
-            cv2.putText(frame, "PAUSED", (w//2 - 55, h//2 - 5),
+            # Bigger box with clear instructions
+            bw, bh = 300, 100
+            bx, by = w//2 - bw//2, h//2 - bh//2
+            cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), (20, 20, 20), -1)
+            cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), (204, 255, 0), 2)
+            cv2.putText(frame, "PAUSED", (w//2 - 55, by + 35),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (204, 255, 0), 2)
-            cv2.putText(frame, "SPACE or say 'pause' to resume",
-                        (w//2 - 145, h//2 + 25),
+            cv2.putText(frame, "SPACE = resume", (bx + 20, by + 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (160, 160, 160), 1)
+            cv2.putText(frame, "H = home | Say drill name", (bx + 20, by + 82),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (160, 160, 160), 1)
             cv2.imshow('SwingForge Drill', frame)
             key = cv2.waitKey(1) & 0xFF
