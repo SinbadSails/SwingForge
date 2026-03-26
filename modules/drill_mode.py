@@ -274,8 +274,8 @@ def draw_drill_hud(frame, drill, current_value, swing_num, swing_history,
     # ── FPS + controls ──
     cv2.putText(frame, f"{fps:.0f} FPS", (w - 80, h - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
-    cv2.putText(frame, "Hands UP=Pause | T-pose=Resume | Say drill name or press [1-0] | [H]ome [Q]uit",
-                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (80, 80, 80), 1)
+    cv2.putText(frame, "Say drill name | SPACE=Pause | [1-0] Switch | [H]ome | [Q]uit",
+                (15, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (80, 80, 80), 1)
 
     return frame
 
@@ -542,31 +542,13 @@ def run_drill_mode(playing_hand='right'):
 
         # ── PAUSED SCREEN ──
         if screen == 'PAUSED':
-            try:
-                pause_kp = pose_engine.extract_keypoints(frame)
-            except Exception:
-                pause_kp = None
-
-            pause_gesture = gesture_detector.update(pause_kp)
-            pause_hint = gesture_detector.get_gesture_hint(pause_kp)
-
-            cv2.rectangle(frame, (w//2 - 140, h//2 - 50), (w//2 + 140, h//2 + 50), (20, 20, 20), -1)
-            cv2.rectangle(frame, (w//2 - 140, h//2 - 50), (w//2 + 140, h//2 + 50), (204, 255, 0), 2)
-            cv2.putText(frame, "PAUSED", (w//2 - 55, h//2 - 10),
+            cv2.rectangle(frame, (w//2 - 160, h//2 - 40), (w//2 + 160, h//2 + 40), (20, 20, 20), -1)
+            cv2.rectangle(frame, (w//2 - 160, h//2 - 40), (w//2 + 160, h//2 + 40), (204, 255, 0), 2)
+            cv2.putText(frame, "PAUSED", (w//2 - 55, h//2 - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (204, 255, 0), 2)
-            cv2.putText(frame, "T-pose or SPACE to resume | Say drill name to switch",
-                        (w//2 - 210, h//2 + 25),
+            cv2.putText(frame, "SPACE or say 'pause' to resume",
+                        (w//2 - 145, h//2 + 25),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (160, 160, 160), 1)
-
-            if pause_hint:
-                cv2.putText(frame, pause_hint, (w//2 - 120, h//2 + 45),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (204, 255, 0), 1)
-
-            if pause_gesture == 'resume':
-                screen = 'DRILL'
-                gesture_detector.is_paused = False
-                voice_coach.say("Resumed.")
-
             cv2.imshow('SwingForge Drill', frame)
             key = cv2.waitKey(1) & 0xFF
             if check_voice_and_keys(key):
@@ -600,19 +582,9 @@ def run_drill_mode(playing_hand='right'):
         if angles and drill['metric'] in angles:
             live_value = angles[drill['metric']]
 
-        # Gesture detection — only pause gesture now
-        gesture = gesture_detector.update(user_kp)
-        gesture_hint = gesture_detector.get_gesture_hint(user_kp)
-
-        if gesture_hint:
-            cv2.putText(frame, gesture_hint, (w // 2 - 150, h // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (204, 255, 0), 2)
-
-        if gesture == 'pause':
-            screen = 'PAUSED'
-            gesture_detector.is_paused = True
-            voice_coach.say("Paused.")
-        # (next_drill and restart handled by voice commands via check_voice_and_keys)
+        # No gesture controls — they conflict with tennis movements
+        # (trophy position = both hands up = accidental pause)
+        # Use voice ("pause") or spacebar instead
 
         # (Voice commands + keys handled by check_voice_and_keys at end of loop)
 
