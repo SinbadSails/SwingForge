@@ -52,17 +52,17 @@ DRILLS = {
         'color': (0, 255, 0),
     },
     2: {
-        'name': 'Shoulder Turn',
+        'name': 'Contact Height',
         'category': 'GROUNDSTROKE',
-        'metric': 'shoulder_angle',
-        'phase': 'loading',
-        'target': (65, 100),
-        'unit': '°',
+        'metric': 'contact_height_ratio',
+        'phase': 'contact',
+        'target': (0.95, 1.25),
+        'unit': 'x',
         'good_direction': 'higher',
-        'instruction': 'Rotate your shoulders fully during preparation.',
-        'tip_too_high': 'Over-rotating — keep it controlled.',
-        'tip_too_low': 'Turn more! Non-dominant shoulder toward the ball.',
-        'tip_good': 'Full coil! That sets up everything.',
+        'instruction': 'Hit the ball at waist-to-chest height. Not too high, not too low.',
+        'tip_too_high': 'Hitting too high — let the ball drop more.',
+        'tip_too_low': 'Hitting too low — step in and take it earlier.',
+        'tip_good': 'Perfect contact height! Right in the strike zone.',
         'color': (255, 200, 0),
     },
     3: {
@@ -486,7 +486,7 @@ def run_drill_mode(playing_hand='right'):
         elif vcmd == 'restart' or key == ord('r'):
             if drill:
                 switch_drill(current_drill_id)
-        elif key == ord('h'):
+        elif vcmd == 'home' or key == ord('h'):
             screen = 'HOME'
             voice_coach.say("Home screen.")
         elif vcmd == 'next_drill':

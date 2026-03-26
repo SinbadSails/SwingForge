@@ -31,7 +31,7 @@ KEYWORD_MAP = [
     (['serve'], 6),  # default serve = trophy position
     # Groundstroke drills
     (['knee', 'knees', 'bend'], 1),
-    (['shoulder', 'turn', 'coil'], 2),
+    (['contact', 'height', 'zone'], 2),
     (['racket', 'lag', 'rack'], 3),
     (['elbow', 'extension', 'extend'], 4),
     (['follow', 'finish', 'through'], 5),
@@ -41,6 +41,7 @@ KEYWORD_MAP = [
     # Control commands
     (['restart', 'again', 'reset', 'redo'], 'restart'),
     (['pause', 'stop', 'wait', 'hold'], 'pause'),
+    (['home', 'menu', 'back'], 'home'),
     (['quit', 'exit', 'done', 'close'], 'quit'),
     (['next', 'switch'], 'next_drill'),
 ]
